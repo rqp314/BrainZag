@@ -1,0 +1,2041 @@
+/**
+ * Author: BrainZag
+ * Repository: https://github.com/rqp314/BrainZag
+ * License: See LICENSE file
+ * Copyright (c) 2026 BrainZag
+ *
+ * Game logic, UI handling, debug tools, and adaptive difficulty system.
+ *
+*/
+
+// ------------------ Debug Flag ------------------
+// Debug mode enabled automatically on localhost, disabled on production
+const DEBUG = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+// ------------------ Config ------------------
+
+const COLORS = [
+    { color: "#0000FF", rank: 1, name: "blue" },
+    { color: "#9D00FF", rank: 2, name: "purple" },
+    { color: "#23AE3A", rank: 3, name: "green" },
+    { color: "#FFDE21", rank: 4, name: "yellow" },
+    { color: "#FFA500", rank: 5, name: "orange" },
+    { color: "#895129", rank: 6, name: "brown" },
+    { color: "#CD1C18", rank: 7, name: "red" },
+    { color: "#0C0A09", rank: 8, name: "black" }
+];
+
+// Create color mappings
+const COLOR_NAME_TO_HEX = {};
+const COLOR_HEX_TO_NAME = {};
+COLORS.forEach(c => {
+    COLOR_NAME_TO_HEX[c.name] = c.color;
+    COLOR_HEX_TO_NAME[c.color] = c.name;
+});
+
+const DISPLAY_TIME = 500;   // 0.5s stimulus showing
+const INTERVAL_TIME = 2500; // 2.5s between items
+const TIMING_JITTER = 50;  // ±50ms random variation in timing
+
+// Get randomized interval with jitter
+function getRandomizedInterval() {
+    return INTERVAL_TIME; // TODO
+    const jitter = (Math.random() * 2 - 1) * TIMING_JITTER; // random between -TIMING_JITTER and +TIMING_JITTER
+    return INTERVAL_TIME + jitter;
+}
+
+// ------------------ ReactionTimer ------------------
+
+class ReactionTimer {
+    constructor() {
+        this.stimulusTime = null;
+        this.filter = new LowPassFilter(0.1);
+        this.currentAvg = 500; // initial estimate
+    }
+
+    startTrial() {
+        this.stimulusTime = performance.now();
+    }
+
+    recordResponse() {
+        if (this.stimulusTime === null) {
+            return 500; // fallback if no trial started
+        }
+        const reactionTime = performance.now() - this.stimulusTime;
+        this.currentAvg = this.filter.apply(this.currentAvg, reactionTime);
+        return reactionTime;
+    }
+
+    recordNonResponse() {
+        // User didn't click, count full interval time
+        return INTERVAL_TIME;
+    }
+
+    reset() {
+        this.stimulusTime = null;
+    }
+}
+
+// ------------------ State ------------------
+
+let n = 1;
+let history = [];
+let index = 0;
+let intervalId = null;
+let isRunning = false;
+let rounds = 0;
+
+let correctMatches = 0;
+let incorrectMatches = 0;
+let totalTargets = 0;
+let roundLocked = false;
+let currentActiveCell = null; // track the cell currently showing stimulus
+let currentBgCell = null; // track corresponding background cell
+let coloredCellVisible = false; // track if colored cell is currently visible
+let hideTimeout = null; // track timeout for hiding colored cell
+let speedMultiplier = 1; // 1 = normal speed, 2 = double speed
+
+// Adaptive N-Back System
+let adaptiveGame = null;
+let reactionTimer = new ReactionTimer(); // track reaction times
+
+// Debug: Trial history tracking
+let detailedTrialHistory = []; // stores last trials with full details
+let autopilotEnabled = false; // autopilot mode for debugging
+let statsVisible = true; // stats display visibility (default: true)
+
+// Debug: Graph tracking
+let baselineHistory = []; // stores baseline load over time with outcomes
+
+// Focus Mode (tunnel vision after 1 minute of uninterrupted play)
+let focusModeActive = false;
+let focusModeIntensity = 0; // 0 to 1, gradually increases
+let focusModeStartTime = null; // when gameplay started (for tracking 1 minute)
+let focusModeTransitionId = null; // animation frame ID for smooth transition
+const FOCUS_MODE_DELAY = 10000 // 60 seconds before focus mode kicks in
+const FOCUS_MODE_TRANSITION_DURATION = 30000; // 30 seconds to fully fade in (like night shift)
+
+// Load adaptive game state from localStorage
+function loadAdaptiveGameState() {
+    try {
+        const savedState = localStorage.getItem('adaptiveGameState');
+        if (!savedState) return null;
+
+        const state = JSON.parse(savedState);
+
+        // Recreate the adaptive game from saved state
+        const game = new AdaptiveNBackGame({
+            startN: state.currentN,
+            colors: COLORS
+        });
+
+        // Restore internal state if available
+        if (state.trainerState) {
+            game.trainer.trialNumber = state.trainerState.trialNumber || 0;
+            game.trainer.colorController.currentUniqueColors = state.trainerState.currentUniqueColors || 2;
+            game.trainer.performanceTracker.accuracy = state.trainerState.accuracy || 0.75;
+        }
+
+        // Restore history
+        if (state.history) {
+            game.history = state.history;
+        }
+
+        // Restore trials
+        if (state.allTrials) {
+            game.allTrials = state.allTrials;
+        }
+
+        return game;
+    } catch (e) {
+        console.error('Failed to load adaptive game state:', e);
+        return null;
+    }
+}
+
+// Save adaptive game state to localStorage
+function saveAdaptiveGameState() {
+    if (!adaptiveGame) return;
+
+    try {
+        const state = adaptiveGame.toJSON();
+        localStorage.setItem('adaptiveGameState', JSON.stringify(state));
+    } catch (e) {
+        console.error('Failed to save adaptive game state:', e);
+    }
+}
+
+// ------------------ Daily Timer & Progress Bar (Centered Marks) ------------------
+
+let elapsedSeconds = 0;      // total seconds played today
+let timerInterval = null;
+const CHUNK_SECONDS = 1200; // 20 minutes per chunk
+let minuteIndicators = [];  // DOM elements for minute markers
+let progressBarFull = false; // track if progress bar has reached 100% during gameplay
+let minutePositions = []; // Fibonacci-based minute positions (in minutes)
+let lastCompletedChunk = 0; // track the last completed chunk to detect resets
+let isAnimatingBar = false; // track if progress bar is animating (during stopGame)
+let segmentElements = []; // DOM elements for segmented progress bars during gameplay
+
+// Load saved timer from localStorage or reset if new day
+function loadDailyTimer() {
+    const savedDate = localStorage.getItem("dailyPlayDate");
+    const savedSeconds = parseInt(localStorage.getItem("dailyPlaySeconds"));
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (savedDate === today && !isNaN(savedSeconds)) {
+        elapsedSeconds = savedSeconds;
+    } else {
+        elapsedSeconds = 0;
+        localStorage.setItem("dailyPlaySeconds", "0");
+        localStorage.setItem("dailyPlayDate", today);
+    }
+
+    updateTimerUI();
+    loadMinutePositions();
+}
+
+function generateFibonacciMinutePositions() {
+    const PHI = 1.618;
+
+    // Start with first position in first 5 minutes
+    const pos1 = Math.random() * 3 + 1; // random between 1 and 4 minutes
+
+    // Initial interval between positions
+    const baseInterval = Math.random() * 2 + 2; // random between 2 and 4 minutes
+
+    // Each subsequent position uses Fibonacci ratio for spacing
+    const pos2 = Math.min(pos1 + baseInterval, 18.0);
+    const pos3 = Math.min(pos2 + (baseInterval * PHI), 18.0);
+    const pos4 = Math.min(pos3 + (baseInterval * PHI * PHI), 18.0);
+
+    return [pos1, pos2, pos3, pos4];
+}
+
+// Load minute positions from localStorage or generate new ones if new day
+function loadMinutePositions() {
+    const savedDate = localStorage.getItem("minutePositionsDate");
+    const savedPositions = localStorage.getItem("minutePositions");
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (savedDate === today && savedPositions) {
+        minutePositions = JSON.parse(savedPositions);
+    } else {
+        minutePositions = generateFibonacciMinutePositions();
+        saveMinutePositions();
+    }
+}
+
+// Save minute positions to localStorage
+function saveMinutePositions() {
+    const today = new Date().toISOString().slice(0, 10);
+    localStorage.setItem("minutePositions", JSON.stringify(minutePositions));
+    localStorage.setItem("minutePositionsDate", today);
+}
+
+// Regenerate minute positions (for debug button)
+function regenerateMinutePositions() {
+    minutePositions = generateFibonacciMinutePositions();
+    saveMinutePositions();
+}
+
+// Save current daily timer
+function saveDailyTimer() {
+    localStorage.setItem("dailyPlaySeconds", elapsedSeconds.toString());
+}
+
+// Create segmented progress bar (islands with gaps)
+function createSegmentedProgressBar() {
+    // Remove existing segments
+    segmentElements.forEach(seg => seg.container.remove());
+    segmentElements = [];
+
+    // Ensure container has relative positioning for absolute children
+    timerProgress.style.position = "relative";
+
+    // Convert minute positions to percentages (sorted)
+    const dividerPositions = minutePositions
+        .map(min => (min * 60 / CHUNK_SECONDS) * 100)
+        .sort((a, b) => a - b);
+
+    // Create 5 segments (4 dividers create 5 segments)
+    const segmentBoundaries = [0, ...dividerPositions, 100];
+    const GAP_WIDTH = 3; // gap between islands in pixels
+
+    for (let i = 0; i < segmentBoundaries.length - 1; i++) {
+        const startPercent = segmentBoundaries[i];
+        const endPercent = segmentBoundaries[i + 1];
+        const widthPercent = endPercent - startPercent;
+
+        // Create segment container
+        const segment = document.createElement("div");
+        segment.style.position = "absolute";
+        segment.style.left = `${startPercent}%`;
+        segment.style.width = `calc(${widthPercent}% - ${GAP_WIDTH}px)`;
+        segment.style.height = "100%";
+        segment.style.background = "rgba(221, 221, 221, 0.6)";
+        segment.style.borderRadius = "3px";
+        segment.style.overflow = "hidden";
+        segment.style.zIndex = "10";
+        segment.style.pointerEvents = "none";
+
+        // Create fill inside segment
+        const fill = document.createElement("div");
+        fill.className = "segment-fill";
+        fill.style.position = "absolute";
+        fill.style.left = "0";
+        fill.style.top = "0";
+        fill.style.height = "100%";
+        fill.style.width = "0%";
+        fill.style.background = "rgba(183, 175, 175, 0.7)";
+        fill.style.transition = "width 0.3s linear";
+
+        segment.appendChild(fill);
+        timerProgress.appendChild(segment);
+        segmentElements.push({ container: segment, fill: fill, startPercent, endPercent });
+    }
+}
+
+// Update segmented progress bar based on current progress
+function updateSegmentedProgressBar(progressPercent) {
+    if (!isRunning || segmentElements.length === 0) return;
+
+    segmentElements.forEach(seg => {
+        if (progressPercent <= seg.startPercent) {
+            // Haven't reached this segment yet
+            seg.fill.style.width = "0%";
+        } else if (progressPercent >= seg.endPercent) {
+            // Segment is completely filled
+            seg.fill.style.width = "100%";
+        } else {
+            // Partially filled segment
+            const segmentWidth = seg.endPercent - seg.startPercent;
+            const segmentProgress = progressPercent - seg.startPercent;
+            const fillPercent = (segmentProgress / segmentWidth) * 100;
+            seg.fill.style.width = `${fillPercent}%`;
+        }
+    });
+}
+
+function removeSegmentedProgressBar() {
+    segmentElements.forEach(seg => seg.container.remove());
+    segmentElements = [];
+}
+
+function updateTimerUI() {
+    // Update current session progress fill (only during gameplay)
+    if (isRunning) {
+        const currentProgress = elapsedSeconds % CHUNK_SECONDS;
+        const progressPercent = (currentProgress / CHUNK_SECONDS) * 100;
+
+        // If bar has reached 100% during this session, keep it there
+        if (progressBarFull) {
+            timerFill.style.width = "100%";
+            updateSegmentedProgressBar(100);
+            return;
+        }
+
+        // Check if we're at or past 100%
+        if (progressPercent >= 99.9) {
+            progressBarFull = true;
+            timerFill.style.transition = "width 0.3s linear";
+            timerFill.style.width = "100%";
+            updateSegmentedProgressBar(100);
+        } else {
+            // Normal update
+            timerFill.style.transition = "width 0.3s linear";
+            timerFill.style.width = `${progressPercent}%`;
+            updateSegmentedProgressBar(progressPercent);
+        }
+
+        // Update indicator styles based on progress
+        updateIndicatorStyles();
+    }
+}
+
+// Start daily timer while game runs
+function startDailyTimer() {
+    if (timerInterval) return;
+
+    // Initialize last completed chunk
+    lastCompletedChunk = Math.floor(elapsedSeconds / CHUNK_SECONDS);
+
+    timerInterval = setInterval(() => {
+        elapsedSeconds++;
+
+        // Check if we crossed into a new chunk
+        const currentChunk = Math.floor(elapsedSeconds / CHUNK_SECONDS);
+        if (currentChunk > lastCompletedChunk) {
+            lastCompletedChunk = currentChunk;
+
+            // Only reset progress bar if it hasn't reached 100% yet
+            // If progressBarFull is true, keep the bar at 100% during gameplay
+            if (!progressBarFull) {
+                // Reset progress bar to start of new chunk
+                timerFill.style.transition = "none";
+                timerFill.style.width = "0%";
+
+                // Reset segmented progress bar if in gameplay mode
+                if (isRunning && segmentElements.length > 0) {
+                    segmentElements.forEach(seg => {
+                        seg.fill.style.transition = "none";
+                        seg.fill.style.width = "0%";
+                    });
+                    setTimeout(() => {
+                        segmentElements.forEach(seg => {
+                            seg.fill.style.transition = "width 0.3s linear";
+                        });
+                    }, 50);
+                }
+
+                // Force reflow
+                setTimeout(() => {
+                    timerFill.style.transition = "width 0.3s linear";
+                }, 50);
+            }
+
+            // DO NOT show indicators during gameplay
+            // Indicators are only shown during end screen (in stopGame)
+        }
+
+        updateTimerUI();
+        saveDailyTimer();
+    }, 1000);
+}
+
+// Stop daily timer when game stops
+function stopDailyTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+}
+
+// Format seconds to HH:MM:SS or MM:SS
+function formatTime(secs) {
+    const hrs = Math.floor(secs / 3600);
+    const mins = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+
+    if (hrs > 0) {
+        return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+    return `${String(mins).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+// Create minute indicators using Fibonacci-based positions (offset by completed chunks)
+function createMinuteIndicators() {
+    // Remove old indicators
+    minuteIndicators.forEach(m => m.remove());
+    minuteIndicators = [];
+
+    const completedChunks = Math.floor(elapsedSeconds / CHUNK_SECONDS);
+    const minuteOffset = completedChunks * 20; // offset for completed 20-min chunks
+
+    minutePositions.forEach(min => {
+        const seconds = min * 60;
+        const position = (seconds / CHUNK_SECONDS) * 100; // percentage
+
+        if (position <= 100) { // only show if within current 20-min chunk
+            const indicator = document.createElement("div");
+            indicator.style.position = "absolute";
+            indicator.style.left = `${position}%`;
+            indicator.style.top = "0";
+            indicator.style.width = "2px";
+            indicator.style.height = "100%";
+            indicator.style.background = "rgba(0, 0, 0, 0.6)";
+            indicator.style.transform = "translateX(-1px)"; // center the 2px line
+            indicator.style.opacity = "0";
+            indicator.style.transition = "opacity 0.3s ease, background 0.3s ease, width 0.3s ease";
+            indicator.dataset.position = position; // store position for later checks
+
+            // Add label inside the bar with offset
+            const label = document.createElement("div");
+            const displayMinute = Math.round(min + minuteOffset);
+            label.textContent = `${displayMinute}m`;
+            label.style.position = "absolute";
+            label.style.top = "50%";
+            label.style.left = "4px"; // offset to the right of the line
+            label.style.transform = "translateY(-50%)";
+            label.style.fontSize = "9px";
+            label.style.color = "rgba(0, 0, 0, 0.8)";
+            label.style.whiteSpace = "nowrap";
+            label.style.fontWeight = "bold";
+            label.style.transition = "color 0.3s ease, font-weight 0.3s ease";
+
+            indicator.appendChild(label);
+            timerProgress.appendChild(indicator);
+            minuteIndicators.push(indicator);
+
+            // Fade in
+            setTimeout(() => {
+                indicator.style.opacity = "1";
+            }, 50);
+        }
+    });
+
+    // Update styles based on current progress (only if not animating)
+    if (!isAnimatingBar) {
+        setTimeout(() => {
+            updateIndicatorStyles();
+        }, 100);
+    } else {
+        // During animation, start with all indicators highlighted (bar at 0%)
+        setTimeout(() => {
+            updateIndicatorStyles(0);
+        }, 100);
+    }
+}
+
+// Update indicator styles based on current progress
+// animatedPercent: optional override for when bar is animating (use animated position instead of actual time)
+function updateIndicatorStyles(animatedPercent = null) {
+    let progressPercent;
+
+    if (animatedPercent !== null) {
+        // Use the animated bar position
+        progressPercent = animatedPercent;
+    } else {
+        // Use actual time progress
+        const currentProgress = elapsedSeconds % CHUNK_SECONDS;
+        progressPercent = (currentProgress / CHUNK_SECONDS) * 100;
+    }
+
+    // Find upcoming indicators (not yet passed) and sort by position
+    const upcomingIndicators = minuteIndicators
+        .map(indicator => ({
+            element: indicator,
+            position: parseFloat(indicator.dataset.position)
+        }))
+        .filter(item => progressPercent <= item.position)
+        .sort((a, b) => a.position - b.position);
+
+    // Get the next 2 upcoming indicators
+    const nextTwoPositions = upcomingIndicators.slice(0, 2).map(item => item.position);
+
+    minuteIndicators.forEach(indicator => {
+        const indicatorPosition = parseFloat(indicator.dataset.position);
+        const label = indicator.querySelector("div");
+
+        if (progressPercent > indicatorPosition) {
+            // Progress bar has passed this indicator - make it grey/thin
+            indicator.style.background = "rgba(0, 0, 0, 0.2)";
+            indicator.style.width = "1px";
+            indicator.style.transform = "translateX(-0.5px)";
+            if (label) {
+                label.style.color = "rgba(0, 0, 0, 0.4)";
+                label.style.fontWeight = "400";
+            }
+        } else if (nextTwoPositions.includes(indicatorPosition)) {
+            // This is one of the next 2 upcoming indicators - MOST bold
+            indicator.style.background = "rgba(0, 0, 0, 0.6)";
+            indicator.style.width = "2px";
+            indicator.style.transform = "translateX(-1px)";
+            if (label) {
+                label.style.color = "rgba(0, 0, 0, 0.8)";
+                label.style.fontWeight = "bold";
+            }
+        } else {
+            // Further ahead indicators - all should have the same less bold style
+            indicator.style.background = "rgba(0, 0, 0, 0.45)";
+            indicator.style.width = "1.5px";
+            indicator.style.transform = "translateX(-0.75px)";
+            if (label) {
+                label.style.color = "rgba(0, 0, 0, 0.65)";
+                label.style.fontWeight = "600";
+            }
+        }
+    });
+}
+
+// Remove minute indicators
+function removeMinuteIndicators() {
+    minuteIndicators.forEach(m => {
+        m.style.opacity = "0";
+    });
+    setTimeout(() => {
+        minuteIndicators.forEach(m => m.remove());
+        minuteIndicators = [];
+    }, 300);
+}
+
+
+// ------------------ UI ------------------
+
+const grid = document.getElementById("grid");
+const nBackButtons = document.querySelectorAll(".n-back-btn");
+const startBtn = document.getElementById("startBtn");
+const stopBtn = document.getElementById("stopBtn");
+const matchBtn = document.getElementById("matchBtn");
+const roundDisplay = document.getElementById("roundDisplay");
+const timerFill = document.getElementById("timerFill");
+const timerProgress = document.getElementById("timerProgress");
+const resultsEl = document.getElementById("results");
+const showColorsBtn = document.getElementById("showColorsBtn");
+const extraColorsContainer = document.getElementById("extraColorsContainer");
+const doubleSpeedBtn = document.getElementById("doubleSpeedBtn");
+
+// Per n-back accuracy tracking (running average)
+let nBackStats = {}; // { "1": {sum: 425, count: 5, avg: 85}, "2": {sum: 144, count: 2, avg: 72}, ... }
+
+// Load per n-back stats from localStorage
+function loadNBackAccuracies() {
+    try {
+        const saved = localStorage.getItem("nBackStats");
+        if (saved) {
+            nBackStats = JSON.parse(saved);
+        }
+    } catch (e) {
+        console.error("Failed to load n-back stats:", e);
+        nBackStats = {};
+    }
+}
+
+// Save per n-back stats to localStorage
+function saveNBackAccuracies() {
+    try {
+        localStorage.setItem("nBackStats", JSON.stringify(nBackStats));
+    } catch (e) {
+        console.error("Failed to save n-back stats:", e);
+    }
+}
+
+// Update running average for an n-back level
+function updateNBackAverage(nLevel, newAccuracy) {
+    if (!nBackStats[nLevel]) {
+        nBackStats[nLevel] = { sum: 0, count: 0, avg: 0 };
+    }
+
+    nBackStats[nLevel].sum += newAccuracy;
+    nBackStats[nLevel].count += 1;
+    nBackStats[nLevel].avg = Math.round(nBackStats[nLevel].sum / nBackStats[nLevel].count);
+
+    saveNBackAccuracies();
+}
+
+// Get average accuracy for an n-back level
+function getNBackAverage(nLevel) {
+    return nBackStats[nLevel] ? nBackStats[nLevel].avg : 0;
+}
+
+// Update button appearance
+function updateNBackButtons() {
+    nBackButtons.forEach(btn => {
+        const nValue = parseInt(btn.dataset.n);
+        const isSelected = nValue === n;
+
+        // Get or create text element
+        let textEl = btn.querySelector('.n-back-btn-text');
+        if (!textEl) {
+            textEl = document.createElement('span');
+            textEl.className = 'n-back-btn-text';
+            btn.appendChild(textEl);
+        }
+
+        if (isRunning) {
+            // During gameplay
+            btn.classList.add("playing");
+
+            if (isSelected) {
+                // Selected button: keep large with text during gameplay
+                btn.classList.add("large");
+                textEl.textContent = `${nValue}-back`;
+                btn.style.fontSize = "16px";
+            } else {
+                // Other buttons: animate to very small with no text
+                btn.classList.remove("large");
+                textEl.textContent = "";
+                btn.style.fontSize = "0";
+            }
+        } else {
+            // Not playing
+            btn.classList.remove("playing");
+
+            if (isSelected) {
+                // Selected button: large with full text
+                btn.classList.add("large");
+                textEl.textContent = `${nValue}-back`;
+                btn.style.fontSize = "16px";
+            } else {
+                // Other buttons: small with number
+                btn.classList.remove("large");
+                textEl.textContent = nValue;
+                btn.style.fontSize = "11px";
+            }
+        }
+    });
+}
+
+// Handle n-back button clicks
+function setupNBackButtons() {
+    nBackButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+            if (isRunning) return; // can't change during gameplay
+
+            const newN = parseInt(btn.dataset.n);
+
+            // Update global n variable immediately
+            n = newN;
+
+            // Save to localStorage
+            localStorage.setItem("selectedN", n.toString());
+
+            // Stop current game if running
+            if (isRunning) {
+                stopGame(false);
+            }
+
+            // Reset adaptive game to use new N level
+            adaptiveGame = null;
+
+            // Clear saved adaptive game state since N changed
+            localStorage.removeItem("adaptiveGameState");
+
+            // Update button appearance
+            updateNBackButtons();
+
+            // Update stats display to reflect reset
+            updateAdaptiveStatsDisplay();
+
+            console.log(`N-back level changed to ${newN}-back. Game reset.`);
+        });
+    });
+}
+
+// ------------------ Grid Setup ------------------
+
+function createGrid() {
+    grid.innerHTML = "";
+
+    // Create background grid (always visible grey cells)
+    for (let i = 0; i < 9; i++) {
+        const bgCell = document.createElement("div");
+        bgCell.classList.add("bg-cell");
+
+        grid.appendChild(bgCell);
+    }
+
+    // Create overlay grid for colored cells
+    const overlayGrid = document.createElement("div");
+    overlayGrid.id = "overlay-grid";
+
+    for (let i = 0; i < 9; i++) {
+        const cell = document.createElement("div");
+        cell.classList.add("cell");
+
+        overlayGrid.appendChild(cell);
+    }
+
+    grid.appendChild(overlayGrid);
+}
+
+createGrid();
+loadDailyTimer();
+loadNBackAccuracies();
+
+// Load saved N-back level preference
+const savedN = localStorage.getItem("selectedN");
+if (savedN) {
+    n = parseInt(savedN);
+} else {
+    n = 1; // Default to 1-back for first time users
+}
+
+// Load adaptive game state only if it matches current N selection
+const loadedGame = loadAdaptiveGameState();
+if (loadedGame) {
+    // Verify that loaded game's N matches current selection
+    const loadedN = loadedGame.getCurrentN();
+    if (loadedN === n) {
+        adaptiveGame = loadedGame;
+        console.log(`Loaded adaptive game state with ${n}-back`);
+    } else {
+        console.log(`Discarded saved game (was ${loadedN}-back, now ${n}-back)`);
+        localStorage.removeItem('adaptiveGameState');
+        adaptiveGame = null;
+    }
+} else {
+    adaptiveGame = null;
+}
+
+// Setup n-back buttons
+setupNBackButtons();
+updateNBackButtons();
+
+// Initialize adaptive stats display
+updateAdaptiveStatsDisplay();
+
+// Initialize progress bar with current value on page load
+const currentProgress = elapsedSeconds % CHUNK_SECONDS;
+const initialPercent = (currentProgress / CHUNK_SECONDS) * 100;
+timerFill.style.width = `${initialPercent}%`;
+timerFill.style.background = "#57b9c6";
+timerProgress.style.height = "24px"; // start expanded
+createMinuteIndicators(); // show indicators on load
+
+function getPlayableCells() {
+    const overlayGrid = document.getElementById("overlay-grid");
+    return Array.from(overlayGrid.querySelectorAll(".cell"));
+}
+
+// ------------------ Game Logic ------------------
+
+function nextStimulus() {
+    // Safety check: only generate cells if game is running
+    if (!isRunning) {
+        return;
+    }
+
+    // Record non-response to previous stimulus (if applicable)
+    if (adaptiveGame && index > 0 && index > n && !roundLocked) {
+        // User did not click, so this is a non-response
+        const reactionTime = reactionTimer.recordNonResponse();
+        const result = adaptiveGame.onUserResponse(false, reactionTime);
+
+        // Update previous trial outcome for graph
+        if (baselineHistory.length > 0) {
+            // The previous trial's outcome needs to be updated
+            const prevEntry = baselineHistory.find(entry => entry.trial === index);
+            if (prevEntry && prevEntry.outcome.userClicked === null) {
+                // Only update if user didn't click (outcome not yet set)
+                prevEntry.outcome = {
+                    wasMatch: result.wasMatch,
+                    userClicked: false
+                };
+            }
+        }
+    }
+
+    // Now unlock for the current round
+    roundLocked = false;
+
+    // Start timing for this new trial
+    reactionTimer.startTrial();
+
+    clearGrid();
+
+    // Use adaptive system to generate next tile
+    const tile = adaptiveGame.generateNextTile();
+
+    // Convert color name to hex
+    const color = COLOR_NAME_TO_HEX[tile.color];
+
+    // Convert grid position to cell index (row * 3 + col)
+    const cellIndex = tile.position.row * 3 + tile.position.col;
+
+    // Store currentTile for later response handling
+    adaptiveGame.currentTile = tile;
+
+    // CRITICAL: Update history.positions immediately for spatial continuity
+    // This ensures the next tile generation can use this position for adjacency constraints
+    // The full history update (including response data) happens in onUserResponse
+    adaptiveGame.history.positions.push(tile.position);
+    adaptiveGame.history.colors.push(tile.color);
+    adaptiveGame.history.timestamps.push(Date.now());
+
+    // Record trial in detailed history for debug display
+    const actualIsMatch = adaptiveGame.isActualMatch();
+
+    detailedTrialHistory.push({
+        trialNumber: index,
+        colorName: tile.color,
+        colorHex: color,
+        isMatch: actualIsMatch, // based on actual sequence, not adaptive intent
+        userClicked: false, // will be updated if user clicks
+        position: tile.position,
+        timestamp: Date.now()
+    });
+
+    // Keep only last 20 trials in history (we only show 10)
+    if (detailedTrialHistory.length > 20) {
+        detailedTrialHistory.shift();
+    }
+
+    const cells = getPlayableCells();
+    const randomCell = cells[cellIndex];
+
+    // Find the corresponding background cell
+    const overlayGrid = document.getElementById("overlay-grid");
+    const actualCellIndex = Array.from(overlayGrid.children).indexOf(randomCell);
+    const bgCells = Array.from(document.querySelectorAll(".bg-cell"));
+    currentBgCell = bgCells[actualCellIndex];
+
+    randomCell.style.background = color;
+    currentActiveCell = randomCell;
+    coloredCellVisible = true;
+
+    history.push(color);
+    index++;
+    rounds++;
+
+    // Track if this is a target (match) for accuracy calculation
+    if (index > n && history[index - 1] === history[index - 1 - n]) {
+        totalTargets++;
+    }
+
+    // Clear any existing timeout
+    if (hideTimeout) {
+        clearTimeout(hideTimeout);
+    }
+
+    hideTimeout = setTimeout(() => {
+        // Double check game is still running before hiding
+        if (!isRunning) {
+            return;
+        }
+        randomCell.style.background = "transparent";
+        coloredCellVisible = false;
+        // Don't restore squish animation if it's running
+        // Just let the cell disappear
+    }, DISPLAY_TIME / speedMultiplier);
+
+    updateRoundDisplay();
+    updateAdaptiveStatsDisplay();
+
+    // Live update history if it's showing
+    if (historyShowing) {
+        updateHistoryDisplay();
+    }
+
+    // Autopilot: automatically click when there's a match
+    if (autopilotEnabled && adaptiveGame && index > n) {
+        const isMatch = adaptiveGame.isActualMatch();
+        if (isMatch) {
+            // Wait a short random time (100-300ms) to simulate human reaction
+            const reactionDelay = Math.random() * 200 + 400;
+            setTimeout(() => {
+                if (isRunning && !roundLocked) {
+                    handleMatch();
+                }
+            }, reactionDelay);
+        }
+    }
+
+    // Record current load and outcome for graph
+    if (adaptiveGame) {
+        const stats = adaptiveGame.getStats();
+        baselineHistory.push({
+            trial: index,
+            baseline: stats.workingMemory.currentLoad, // Current unique colors in memory
+            targetUniqueColors: stats.workingMemory.targetUniqueColors, // Target number of unique colors
+            maxUniqueColors: stats.workingMemory.maxUniqueColors,
+            outcome: {
+                wasMatch: null, // will be set when user responds (or doesn't respond)
+                userClicked: null // will be set when user responds (or doesn't respond)
+            }
+        });
+
+        // Keep only last 40 trials
+        if (baselineHistory.length > 40) {
+            baselineHistory.shift();
+        }
+
+        // Live update graph if it's showing
+        if (graphShowing) {
+            updateGraphDisplay();
+        }
+    }
+
+    // In infinite mode, monitor rolling average errors and end if too many mistakes
+    // Use last 10 trials to check for poor performance
+    if (adaptiveGame && rounds >= 10) {
+        const recentTrials = adaptiveGame.allTrials.slice(-10);
+
+        // Count actual ERRORS: false positives + missed targets
+        const errors = recentTrials.filter(t => {
+            const isFalsePositive = t.userClicked && !t.wasMatch;
+            const isMissedTarget = !t.userClicked && t.wasMatch;
+            return isFalsePositive || isMissedTarget;
+        }).length;
+
+        // End game if 5 or more errors in last 10 trials (50%+ error rate)
+        // This works regardless of how many targets there were
+        if (errors >= 5) {
+            stopGame(true);
+        }
+    }
+
+    // Always end game after 40 trials regardless of performance
+    if (rounds >= 40) {
+        stopGame(true);
+    }
+}
+
+function clearGrid() {
+    const overlayGrid = document.getElementById("overlay-grid");
+    overlayGrid.querySelectorAll(".cell").forEach(cell => {
+        cell.style.background = "transparent";
+        cell.classList.remove("squish-right", "squish-left");
+    });
+
+    // Clear background cell squish animations
+    document.querySelectorAll(".bg-cell").forEach(cell => {
+        cell.classList.remove("squish-right", "squish-left");
+    });
+
+    currentActiveCell = null;
+    currentBgCell = null;
+    coloredCellVisible = false;
+
+    if (hideTimeout) {
+        clearTimeout(hideTimeout);
+        hideTimeout = null;
+    }
+}
+
+function handleMatch() {
+    if (!isRunning) return;
+
+    // Randomly choose squish direction
+    const squishClass = Math.random() < 0.5 ? "squish-right" : "squish-left";
+
+    // Squish the background cell
+    if (currentBgCell) {
+        currentBgCell.classList.remove("squish-right", "squish-left");
+        void currentBgCell.offsetWidth;
+        currentBgCell.classList.add(squishClass);
+
+        setTimeout(() => {
+            if (currentBgCell) {
+                currentBgCell.classList.remove("squish-right", "squish-left");
+            }
+        }, 120);
+    }
+
+    // Also squish the colored overlay cell if it exists and is visible
+    if (currentActiveCell && coloredCellVisible) {
+        currentActiveCell.classList.remove("squish-right", "squish-left");
+        void currentActiveCell.offsetWidth;
+        currentActiveCell.classList.add(squishClass);
+
+        setTimeout(() => {
+            if (currentActiveCell) {
+                currentActiveCell.classList.remove("squish-right", "squish-left");
+            }
+        }, 120);
+    }
+
+    // Mark user click in detailed history (for debug display)
+    if (detailedTrialHistory.length > 0) {
+        detailedTrialHistory[detailedTrialHistory.length - 1].userClicked = true;
+    }
+
+    // Don't count clicks before the first n is reached for accuracy
+    if (index <= n) return;
+
+    if (roundLocked) return; // already clicked this round for scoring
+
+    roundLocked = true; // lock for the rest of this round
+
+    const isMatch = history[index - 1] === history[index - 1 - n];
+
+    if (isMatch) correctMatches++;
+    else incorrectMatches++;
+
+    // Record response in adaptive system
+    if (adaptiveGame) {
+        const reactionTime = reactionTimer.recordResponse();
+        const result = adaptiveGame.onUserResponse(true, reactionTime);
+
+        // Update trial outcome for graph
+        if (baselineHistory.length > 0) {
+            const currentEntry = baselineHistory[baselineHistory.length - 1];
+            currentEntry.outcome = {
+                wasMatch: result.wasMatch,
+                userClicked: true
+            };
+        }
+
+        updateAdaptiveStatsDisplay();
+
+        // Live update graph if it's showing
+        if (graphShowing) {
+            updateGraphDisplay();
+        }
+    }
+}
+
+
+// ------------------ Controls ------------------
+
+function startGame() {
+    if (isRunning) return;
+
+    // Initialize game state
+    history = [];
+    index = 0;
+    rounds = 0;
+    correctMatches = 0;
+    incorrectMatches = 0;
+    totalTargets = 0;
+    isRunning = true;
+    progressBarFull = false;
+    reactionTimer.reset(); // reset reaction timer for new game
+    detailedTrialHistory = []; // reset debug history
+    baselineHistory = []; // reset graph data with outcomes
+
+    // Initialize or continue adaptive system
+    if (!adaptiveGame) {
+        // Create new adaptive game if none exists
+        adaptiveGame = new AdaptiveNBackGame({
+            startN: n,
+            colors: COLORS
+        });
+    }
+    // If adaptiveGame already exists from localStorage, continue using it
+    // Just reset the current session history, not the learning data
+    adaptiveGame.history = { colors: [], positions: [], timestamps: [] };
+
+    // Clear results and close progress bar
+    resultsEl.innerHTML = "";
+
+    // Quickly shrink progress bar back to small size
+    timerProgress.style.height = "8px";
+    timerProgress.style.overflow = "hidden";
+
+    // Remove minute indicators
+    removeMinuteIndicators();
+
+    // Make progress bar container transparent during gameplay
+    timerProgress.style.background = "transparent";
+
+    // Hide the normal progress fill completely
+    timerFill.style.display = "none";
+
+    // Create segmented progress bar (islands with gaps)
+    createSegmentedProgressBar();
+
+    // Initialize segment fills with current progress
+    const currentProgress = elapsedSeconds % CHUNK_SECONDS;
+    const currentPercent = (currentProgress / CHUNK_SECONDS) * 100;
+    updateSegmentedProgressBar(currentPercent);
+
+    // Hide color preview if showing
+    if (colorsShowing) {
+        hideAllColors();
+    }
+
+    // Hide GitHub footer during gameplay
+    const githubFooter = document.getElementById("githubFooter");
+    if (githubFooter) githubFooter.style.display = "none";
+
+    // Update button visibility (game is now in playing mode)
+    startBtn.style.display = "none";
+    matchBtn.style.display = "inline-block";
+    stopBtn.style.display = "inline-block";
+
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    matchBtn.disabled = false;
+
+    // Update n-back buttons to playing state
+    updateNBackButtons();
+
+    // Start timer (game is running during animation)
+    startDailyTimer();
+
+    // Start focus mode tracking (activates after 1 minute of play)
+    startFocusModeTracking();
+
+    clearGrid();
+
+    // Trigger grid bounce animation (game is already in playing mode)
+    grid.classList.add("grid-bounce");
+
+    // Wait for animation to complete before showing first stimulus
+    setTimeout(() => {
+        grid.classList.remove("grid-bounce");
+
+        // Add another small pause after animation completes
+        setTimeout(() => {
+            nextStimulus();
+            scheduleNextStimulus();
+        }, 500); // small pause after animation
+    }, 450); // slightly longer than animation duration (400ms) for better feel
+}
+
+// Schedule next stimulus with randomized timing
+function scheduleNextStimulus() {
+    if (!isRunning) return;
+
+    const delay = getRandomizedInterval() / speedMultiplier;
+    intervalId = setTimeout(() => {
+        if (!isRunning) return;
+        nextStimulus();
+        scheduleNextStimulus(); // schedule the next one recursively
+    }, delay);
+}
+
+function stopGame(autoEnded = false) {
+    if (!isRunning) return;
+
+    clearTimeout(intervalId);
+    intervalId = null;
+
+    stopDailyTimer();
+
+    // Stop focus mode and restore normal visuals
+    stopFocusMode();
+
+    // End session tracking
+    if (adaptiveGame) {
+        adaptiveGame.endSession();
+    }
+
+    isRunning = false;
+    speedMultiplier = 1; // reset speed to normal
+    doubleSpeedBtn.textContent = "Speed: 2x";
+    doubleSpeedBtn.style.fontWeight = "normal";
+
+    // Remove segmented progress bar
+    removeSegmentedProgressBar();
+
+    // Show normal fill again
+    timerFill.style.display = "block";
+
+    // Expand progress bar
+    timerProgress.style.height = "24px";
+    timerProgress.style.overflow = "visible";
+
+    // Restore full opacity colors
+    timerProgress.style.background = "#ddd";
+    timerFill.style.background = "#57b9c6";
+
+    // Animate progress bar from 0 to current value with FIXED duration
+    const currentProgress = elapsedSeconds % CHUNK_SECONDS;
+    const targetPercent = (currentProgress / CHUNK_SECONDS) * 100;
+
+    // Reset to 0 first
+    timerFill.style.transition = "none";
+    timerFill.style.width = "0%";
+
+    // Force reflow
+    timerProgress.offsetHeight;
+
+    // Set animation flag
+    isAnimatingBar = true;
+
+    // Create minute indicators after expansion (they'll start with 0% styling)
+    setTimeout(() => {
+        createMinuteIndicators();
+    }, 300);
+
+    // Animate to target with FIXED 800ms duration and ease-in-out (fast start, slow end)
+    // Also animate indicator styles in sync
+    const BAR_ANIMATION_DURATION = 800;
+    const animationStartTime = Date.now() + 50;
+
+    setTimeout(() => {
+        timerFill.style.transition = "width 0.8s cubic-bezier(0.32, 0, 0.07, 1)"; // fast start, slow finish
+        timerFill.style.width = `${targetPercent}%`;
+
+        // Animate indicator styles in sync with bar
+        const animateIndicators = () => {
+            const elapsed = Date.now() - animationStartTime;
+            const progress = Math.min(elapsed / BAR_ANIMATION_DURATION, 1);
+
+            // Use same easing as bar animation
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+            const currentAnimatedPercent = targetPercent * easeProgress;
+
+            updateIndicatorStyles(currentAnimatedPercent);
+
+            if (progress < 1) {
+                requestAnimationFrame(animateIndicators);
+            } else {
+                // Animation complete
+                isAnimatingBar = false;
+                updateIndicatorStyles(targetPercent);
+            }
+        };
+
+        requestAnimationFrame(animateIndicators);
+    }, 50);
+
+    // Update button visibility
+    startBtn.style.display = "inline-block";
+    matchBtn.style.display = "none";
+    stopBtn.style.display = "none";
+
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    matchBtn.disabled = true;
+
+    // Update n-back buttons to idle state
+    updateNBackButtons();
+
+    // Show GitHub footer after gameplay
+    const githubFooter = document.getElementById("githubFooter");
+    if (githubFooter) githubFooter.style.display = "block";
+
+    clearGrid();
+
+    if (rounds >= 1 || autoEnded) {
+        showResults();
+    }
+}
+
+function updateRoundDisplay() {
+    roundDisplay.textContent = `Round: ${rounds} (Infinite)`;
+}
+
+
+// ------------------ Results ------------------
+
+function showResults() {
+    // New formula: correct_clicks / (total_targets + wrong_clicks)
+    const denominator = totalTargets + incorrectMatches;
+
+    let percentage = 0;
+    if (denominator > 0) {
+        percentage = Math.round((correctMatches / denominator) * 100);
+    }
+
+    resultsEl.innerHTML = `
+     <div style="text-align:left; display:inline-block; margin-top:10px;">
+        <p>
+            <strong>Accuracy:</strong>
+            <span id="accuracyNumber">0</span>%
+            <br>
+            <strong>Correct:</strong> ${correctMatches}/${totalTargets}
+            | <strong>Incorrect:</strong> ${incorrectMatches}
+        </p>
+    </div>
+    `;
+
+    const display = document.getElementById("accuracyNumber");
+
+    // Animate accuracy number with SHORTER duration for faster feedback
+    const ANIMATION_DURATION = 500; // 500ms for quicker updates
+    const startTime = Date.now();
+
+    const animateAccuracy = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / ANIMATION_DURATION, 1);
+
+        // Use a gentler easing for more consistent value updates throughout
+        // Using quadratic ease-out for smoother, more visible progression
+        const easeProgress = 1 - Math.pow(1 - progress, 2);
+        const current = Math.round(percentage * easeProgress);
+
+        display.textContent = current;
+
+        if (progress < 1) {
+            requestAnimationFrame(animateAccuracy);
+        } else {
+            display.textContent = percentage;
+
+            // Update running average for this n-back level
+            updateNBackAverage(n, percentage);
+
+            // Update button colors immediately after saving accuracy
+            updateNBackButtons();
+        }
+    };
+
+    requestAnimationFrame(animateAccuracy);
+}
+
+
+// ------------------ Adaptive Stats Display ------------------
+
+function updateAdaptiveStatsDisplay() {
+    const statsEl = document.getElementById("adaptiveStats");
+    if (!statsEl) {
+        return;
+    }
+
+    if (!adaptiveGame) {
+        statsEl.textContent = '';
+        return;
+    }
+
+    const stats = adaptiveGame.getStats();
+    const accuracyPercent = Math.round(stats.accuracy * 100);
+    const confidencePercent = Math.round(stats.confidence * 100);
+
+    const BOX_WIDTH = 50;
+
+    // Helper to create a properly padded line
+    const makeLine = (content) => {
+        // Strip HTML tags for length calculation
+        const strippedContent = content.replace(/<[^>]*>/g, '');
+        const len = strippedContent.length;
+        const padding = ' '.repeat(Math.max(0, BOX_WIDTH - len));
+        return `│ ${content}${padding} │\n`;
+    };
+
+    // Build the display
+    let display = '┌────────────────────────────────────────────────────┐\n';
+    display += makeLine(`<strong>BrainZag Stats:</strong>`);
+    display += '├────────────────────────────────────────────────────┤\n';
+    display += makeLine(`N-Back Level: ${stats.currentN}`);
+    display += makeLine(`Trials: ${stats.totalTrials}`);
+    display += '├────────────────────────────────────────────────────┤\n';
+
+    // Performance
+    const accuracyBar = '▓'.repeat(Math.floor(accuracyPercent / 10)) + '░'.repeat(10 - Math.floor(accuracyPercent / 10));
+    display += makeLine(`Accuracy:   ${String(accuracyPercent).padStart(3)}% ${accuracyBar}`);
+
+    // Confidence metric
+    const confidenceBar = '▓'.repeat(Math.floor(confidencePercent / 10)) + '░'.repeat(10 - Math.floor(confidencePercent / 10));
+    display += makeLine(`Confidence: ${String(confidencePercent).padStart(3)}% ${confidenceBar}`);
+
+    display += '├────────────────────────────────────────────────────┤\n';
+
+    // Working Memory Load
+    display += makeLine(`<strong>Memory Load</strong>`);
+
+    const currentLoad = stats.workingMemory.currentLoad;
+    const targetUniqueColors = stats.workingMemory.targetUniqueColors;
+    const maxUniqueColors = stats.workingMemory.maxUniqueColors;
+    const progressToMax = stats.workingMemory.progressToMax;
+
+    // Target unique colors - the step function target
+    const targetBar = '█'.repeat(targetUniqueColors) + '░'.repeat(maxUniqueColors - targetUniqueColors);
+    const progressPercent = Math.round(progressToMax * 100);
+    display += makeLine(`Target Colors:    ${targetBar} ${targetUniqueColors}/${maxUniqueColors} (${progressPercent}%)`);
+
+    // Current load in working memory
+    const loadBar = '█'.repeat(Math.floor(currentLoad)) + '░'.repeat(Math.floor(maxUniqueColors - currentLoad));
+    display += makeLine(`Current Load:     ${loadBar} ${currentLoad}/${maxUniqueColors}`);
+
+    // Performance EMA and pressure
+    const performanceEMA = stats.workingMemory.performanceEMA || 0.75;
+    const emaPercent = Math.round(performanceEMA * 100);
+    const emaBar = '█'.repeat(Math.floor(performanceEMA * 20)) + '░'.repeat(20 - Math.floor(performanceEMA * 20));
+    display += makeLine(`Performance EMA:  ${emaBar} ${emaPercent}%`);
+
+    const increasePressure = stats.workingMemory.increasePressure || 0;
+    const decreasePressure = stats.workingMemory.decreasePressure || 0;
+    display += makeLine(`Pressure: ↑${increasePressure} ↓${decreasePressure}`);
+
+    // Capacity expansion status
+    display += '├────────────────────────────────────────────────────┤\n';
+
+    let statusLine = '';
+
+    // Priority 1: Recovery status
+    if (stats.isRecovery) {
+        statusLine = `<strong>Status:</strong> Recovery block (${stats.driftDetector.recoveryRemaining} left) 🔄`;
+    }
+    // Priority 2: Normal status based on progress
+    else if (progressPercent >= 90) {
+        statusLine = `<strong>Status:</strong> Near full capacity! 🎯`;
+    } else if (progressPercent >= 75) {
+        statusLine = `<strong>Status:</strong> High capacity 📈`;
+    } else if (progressPercent >= 50) {
+        statusLine = `<strong>Status:</strong> Expanding capacity 📊`;
+    } else {
+        statusLine = `<strong>Status:</strong> Building foundation 🏗️`;
+    }
+
+    display += makeLine(statusLine);
+
+    // Cognitive state info
+    if (stats.driftDetector) {
+        const drift = stats.driftDetector;
+        display += '├────────────────────────────────────────────────────┤\n';
+        display += makeLine(`<strong>Cognitive State</strong>`);
+        display += makeLine(`Avg RT: ${drift.avgRT}ms | Variability: ${drift.rtVariability}`);
+        display += makeLine(`RT Trend: ${drift.slowdownTrend}`);
+    }
+
+    display += '└────────────────────────────────────────────────────┘';
+
+    statsEl.innerHTML = display;
+
+    // Save to localStorage after updating display
+    saveAdaptiveGameState();
+}
+
+// ------------------ Color Preview Debug ------------------
+
+let colorsShowing = false;
+
+function showAllColors() {
+    if (colorsShowing) {
+        hideAllColors();
+        return;
+    }
+
+    colorsShowing = true;
+    showColorsBtn.textContent = "Hide Colors";
+
+    const cells = getPlayableCells();
+
+    // Fill grid cells with colors (we have 8 cells and 8 colors)
+    cells.forEach((cell, index) => {
+        if (index < COLORS.length) {
+            cell.style.background = COLORS[index].color;
+        }
+    });
+
+    // If there are more colors than cells, add them to the extra container
+    if (COLORS.length > cells.length) {
+        for (let i = cells.length; i < COLORS.length; i++) {
+            const extraCell = document.createElement("div");
+            extraCell.className = "extra-color-cell";
+            extraCell.style.width = "95px";
+            extraCell.style.height = "95px";
+            extraCell.style.background = COLORS[i].color;
+            extraCell.style.borderRadius = "8px";
+            extraCell.style.filter = "drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15))";
+            extraColorsContainer.appendChild(extraCell);
+        }
+    }
+}
+
+function hideAllColors() {
+    colorsShowing = false;
+    showColorsBtn.textContent = "Show Colors";
+
+    const cells = getPlayableCells();
+    cells.forEach(cell => {
+        cell.style.background = "transparent";
+    });
+
+    // Clear extra colors
+    extraColorsContainer.innerHTML = "";
+}
+
+// ------------------ Keyboard Controls ------------------
+
+document.addEventListener("keydown", (e) => {
+    if (e.code === "Space") {
+        e.preventDefault();
+        if (!isRunning) startGame();
+        else handleMatch();
+    }
+
+    if (e.code === "Escape") {
+        e.preventDefault();
+        stopGame(false);
+    }
+});
+
+// Buttons also work
+matchBtn.addEventListener("click", handleMatch);
+startBtn.addEventListener("click", startGame);
+stopBtn.addEventListener("click", () => stopGame(false));
+showColorsBtn.addEventListener("click", showAllColors);
+
+// Toggle speed function
+function toggleSpeed() {
+    if (!isRunning) return; // only works during gameplay
+
+    if (speedMultiplier === 1) {
+        speedMultiplier = 2;
+        doubleSpeedBtn.textContent = "Speed: 2x (Active)";
+        doubleSpeedBtn.style.fontWeight = "bold";
+    } else {
+        speedMultiplier = 1;
+        doubleSpeedBtn.textContent = "Speed: 2x";
+        doubleSpeedBtn.style.fontWeight = "normal";
+    }
+
+    // Restart the interval with new speed
+    if (intervalId) {
+        clearTimeout(intervalId);
+        scheduleNextStimulus();
+    }
+}
+
+// Debug buttons
+const toggleStatsBtn = document.getElementById("toggleStatsBtn");
+const clearStorageBtn = document.getElementById("clearStorageBtn");
+const debugSetTimeBtn = document.getElementById("debugSetTimeBtn");
+const regenIndicatorsBtn = document.getElementById("regenIndicatorsBtn");
+const autopilotBtn = document.getElementById("autopilotBtn");
+
+clearStorageBtn.addEventListener("click", () => {
+    localStorage.clear();
+    window.location.reload(true);
+});
+
+debugSetTimeBtn.addEventListener("click", () => {
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Set to 18 minutes (1080 seconds)
+    elapsedSeconds = 1080;
+    localStorage.setItem("dailyPlaySeconds", "1080");
+    localStorage.setItem("dailyPlayDate", today);
+
+    // Set demo running averages for different n-back levels
+    nBackStats = {
+        "1": { sum: 475, count: 5, avg: 95 },
+        "2": { sum: 320, count: 4, avg: 80 },
+        "3": { sum: 195, count: 3, avg: 65 },
+        "4": { sum: 100, count: 2, avg: 50 },
+        "5": { sum: 35, count: 1, avg: 35 },
+        "6": { sum: 20, count: 1, avg: 20 }
+    };
+    saveNBackAccuracies();
+
+    // Update UI
+    const currentProgress = elapsedSeconds % CHUNK_SECONDS;
+    const initialPercent = (currentProgress / CHUNK_SECONDS) * 100;
+    timerFill.style.width = `${initialPercent}%`;
+    timerFill.style.background = "#57b9c6";
+
+    // Recreate indicators
+    minuteIndicators.forEach(m => m.remove());
+    minuteIndicators = [];
+    createMinuteIndicators();
+
+    // Update button colors
+    updateNBackButtons();
+
+    alert("Set to 18 minutes with demo accuracies!");
+});
+
+regenIndicatorsBtn.addEventListener("click", () => {
+    // Regenerate Fibonacci positions
+    regenerateMinutePositions();
+
+    // Remove old indicators
+    minuteIndicators.forEach(m => m.remove());
+    minuteIndicators = [];
+
+    // Recreate indicators with new positions
+    createMinuteIndicators();
+
+    // Show confirmation
+    const positions = minutePositions.map(p => Math.round(p * 10) / 10).join(", ");
+    alert(`Indicators regenerated at: ${positions} minutes`);
+});
+
+doubleSpeedBtn.addEventListener("click", toggleSpeed);
+
+// Toggle autopilot function
+function toggleAutopilot() {
+    autopilotEnabled = !autopilotEnabled;
+
+    if (autopilotEnabled) {
+        autopilotBtn.textContent = "Autopilot: On";
+        autopilotBtn.style.fontWeight = "bold";
+        autopilotBtn.style.background = "#4caf50";
+        autopilotBtn.style.color = "white";
+    } else {
+        autopilotBtn.textContent = "Autopilot: Off";
+        autopilotBtn.style.fontWeight = "normal";
+        autopilotBtn.style.background = "";
+        autopilotBtn.style.color = "";
+    }
+}
+
+autopilotBtn.addEventListener("click", toggleAutopilot);
+
+// Toggle stats display function
+function toggleStatsDisplay() {
+    const adaptiveStats = document.getElementById("adaptiveStats");
+    statsVisible = !statsVisible;
+
+    if (statsVisible) {
+        adaptiveStats.style.display = "inline-block";
+        toggleStatsBtn.textContent = "Hide Stats";
+    } else {
+        adaptiveStats.style.display = "none";
+        toggleStatsBtn.textContent = "Show Stats";
+    }
+
+    localStorage.setItem("statsVisible", statsVisible.toString());
+}
+
+// Load stats visibility preference from localStorage
+function loadStatsVisibility() {
+    const savedVisibility = localStorage.getItem("statsVisible");
+    if (savedVisibility !== null) {
+        statsVisible = savedVisibility === "true";
+    } else {
+        statsVisible = true; // default: visible
+    }
+
+    const adaptiveStats = document.getElementById("adaptiveStats");
+    if (statsVisible) {
+        adaptiveStats.style.display = "inline-block";
+        toggleStatsBtn.textContent = "Hide Stats";
+    } else {
+        adaptiveStats.style.display = "none";
+        toggleStatsBtn.textContent = "Show Stats";
+    }
+}
+
+// Load stats visibility on page load
+loadStatsVisibility();
+
+toggleStatsBtn.addEventListener("click", toggleStatsDisplay);
+
+// Show or hide debug tools section based on DEBUG flag
+const debugSection = document.getElementById("debugSection");
+if (debugSection) {
+    debugSection.style.display = DEBUG ? "block" : "none";
+}
+
+// ------------------ Debug: History Display ------------------
+
+let historyShowing = false;
+const showHistoryBtn = document.getElementById("showHistoryBtn");
+const historyContainer = document.getElementById("historyContainer");
+const historyDisplay = document.getElementById("historyDisplay");
+
+function updateHistoryDisplay() {
+    // Get last 10 trials
+    const last10 = detailedTrialHistory.slice(-10);
+
+    if (last10.length === 0) {
+        historyDisplay.innerHTML = '<p style="color: #999;">No trials yet. Start a game to see history.</p>';
+        return;
+    }
+
+    let html = '<div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; min-height: 170px;">';
+
+    last10.forEach((trial) => {
+        const isError = (trial.userClicked && !trial.isMatch) || (!trial.userClicked && trial.isMatch);
+
+        // Background color based on status
+        let bgColor = '#fff';
+        if (isError) {
+            bgColor = '#ffebee'; // light red for errors
+        } else if (trial.isMatch && trial.userClicked) {
+            bgColor = '#e8f5e9'; // light green for correct matches
+        }
+
+        html += `<div style="background: ${bgColor}; padding: 8px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 70px;">`;
+
+        // Color swatch and name
+        html += `<div style="width: 26px; height: 26px; background: ${trial.colorHex}; border-radius: 3px; border: 2px solid #ccc;"></div>`;
+        html += `<div style="font-size: 10px; font-weight: 500;">${trial.colorName}</div>`;
+
+        // Badges (compact icons/symbols) - Match first, then Clicked, then Errors
+        html += `<div style="display: flex; gap: 3px; flex-wrap: wrap; justify-content: center;">`;
+
+        if (trial.isMatch) {
+            html += `<span style="background: #4caf50; color: white; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">M</span>`;
+        }
+
+        if (isError) {
+            const errorSymbol = trial.userClicked && !trial.isMatch ? '✗' : '!';
+            html += `<span style="background: #f44336; color: white; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">${errorSymbol}</span>`;
+        }
+
+        if (trial.userClicked) {
+            html += `<span style="background: #ffeb3b; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">✓</span>`;
+        }
+
+        html += `</div>`;
+        html += `</div>`;
+    });
+
+    html += '</div>';
+    historyDisplay.innerHTML = html;
+}
+
+function showTrialHistory() {
+    if (historyShowing) {
+        hideTrialHistory();
+        return;
+    }
+
+    historyShowing = true;
+    showHistoryBtn.textContent = "Hide History";
+    historyContainer.style.display = "block";
+    updateHistoryDisplay();
+}
+
+function hideTrialHistory() {
+    historyShowing = false;
+    showHistoryBtn.textContent = "Show History";
+    historyContainer.style.display = "none";
+}
+
+showHistoryBtn.addEventListener("click", showTrialHistory);
+
+// ------------------ Debug: Baseline Graph Display ------------------
+
+let graphShowing = false;
+const showGraphBtn = document.getElementById("showGraphBtn");
+const graphContainer = document.getElementById("graphContainer");
+const graphDisplay = document.getElementById("graphDisplay");
+
+function updateGraphDisplay() {
+    if (baselineHistory.length === 0) {
+        graphDisplay.innerHTML = '<p style="color: #999; text-align: center; padding-top: 130px;">No data yet. Start a game to see the graph.</p>';
+        return;
+    }
+
+    const width = graphDisplay.offsetWidth;
+    const height = 300;
+    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+    const graphWidth = width - padding.left - padding.right;
+    const graphHeight = height - padding.top - padding.bottom;
+
+    // Get data range
+    const maxUniqueColors = baselineHistory[0].maxUniqueColors;
+    const minLoad = 1;
+    const trials = baselineHistory.length;
+
+    // Create SVG
+    let svg = `<svg width="${width}" height="${height}" style="font-family: Arial, sans-serif; font-size: 11px;">`;
+
+    // Background - simple neutral color
+    svg += `<rect x="${padding.left}" y="${padding.top}" width="${graphWidth}" height="${graphHeight}" fill="rgba(240, 240, 240, 0.3)"/>`;
+
+    // Y-axis labels and grid lines (from minLoad to maxUniqueColors)
+    for (let i = minLoad; i <= maxUniqueColors; i++) {
+        const y = padding.top + graphHeight - ((i - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
+        svg += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="#e0e0e0" stroke-width="1"/>`;
+        svg += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" fill="#666">${i}</text>`;
+    }
+
+    // Target line (maxUniqueColors)
+    const targetY = padding.top;
+    svg += `<line x1="${padding.left}" y1="${targetY}" x2="${width - padding.right}" y2="${targetY}" stroke="#999" stroke-width="2" stroke-dasharray="5,5"/>`;
+    svg += `<text x="${width - padding.right + 5}" y="${targetY + 4}" fill="#666" font-size="10px">Max</text>`;
+
+    // Current load line
+    let pathData = '';
+    baselineHistory.forEach((point, i) => {
+        const x = padding.left + (i / Math.max(trials - 1, 1)) * graphWidth;
+        const y = padding.top + graphHeight - ((point.baseline - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
+
+        if (i === 0) {
+            pathData += `M ${x} ${y}`;
+        } else {
+            pathData += ` L ${x} ${y}`;
+        }
+    });
+
+    svg += `<path d="${pathData}" fill="none" stroke="#2196F3" stroke-width="2"/>`;
+
+    // Trial outcome markers (dots) - show ALL green and red dots
+    // Green = correct match click, Red = error (missed match or false positive)
+    for (let i = 0; i < baselineHistory.length; i++) {
+        const point = baselineHistory[i];
+        const outcome = point.outcome;
+
+        // Skip if outcome not yet recorded
+        if (!outcome || outcome.wasMatch === null || outcome.userClicked === null) continue;
+
+        const x = padding.left + (i / Math.max(trials - 1, 1)) * graphWidth;
+        const y = padding.top + graphHeight - ((point.baseline - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
+
+        if (outcome.wasMatch && outcome.userClicked) {
+            // Correct match click - green dot
+            svg += `<circle cx="${x}" cy="${y}" r="6" fill="#4caf50" stroke="white" stroke-width="1.5" opacity="0.9"/>`;
+        } else if ((outcome.wasMatch && !outcome.userClicked) || (!outcome.wasMatch && outcome.userClicked)) {
+            // Error (missed match or false positive) - red dot
+            svg += `<circle cx="${x}" cy="${y}" r="6" fill="#f44336" stroke="white" stroke-width="1.5" opacity="0.9"/>`;
+        }
+    }
+
+    // X-axis
+    svg += `<line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="#666" stroke-width="1"/>`;
+
+    // X-axis label
+    svg += `<text x="${width / 2}" y="${height - 5}" text-anchor="middle" fill="#666">Trials</text>`;
+
+    // Y-axis
+    svg += `<line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" stroke="#666" stroke-width="1"/>`;
+
+    // Y-axis label
+    svg += `<text x="10" y="15" fill="#666" font-size="11px">Load</text>`;
+
+    svg += '</svg>';
+    graphDisplay.innerHTML = svg;
+}
+
+function showBaselineGraph() {
+    if (graphShowing) {
+        hideBaselineGraph();
+        return;
+    }
+
+    graphShowing = true;
+    showGraphBtn.textContent = "Hide Graph";
+    graphContainer.style.display = "block";
+    updateGraphDisplay();
+}
+
+function hideBaselineGraph() {
+    graphShowing = false;
+    showGraphBtn.textContent = "Show Graph";
+    graphContainer.style.display = "none";
+}
+
+showGraphBtn.addEventListener("click", showBaselineGraph);
+
+// ------------------ Focus Mode (Tunnel Vision) ------------------
+// Activates after 1 minute of uninterrupted play to induce focus
+// Uses a slow fade in (like night shift) to transition the brain into focus mode
+
+const focusVignette = document.getElementById("focusVignette");
+
+// Calculate vignette gradient centered on the grid
+function updateFocusVignette(intensity) {
+    if (intensity <= 0) {
+        focusVignette.style.opacity = "0";
+        return;
+    }
+
+    // Get grid position to center the clear area
+    const gridRect = grid.getBoundingClientRect();
+    const centerX = gridRect.left + gridRect.width / 2;
+    const centerY = gridRect.top + gridRect.height / 2;
+
+    // Convert to percentage of viewport
+    const centerXPercent = (centerX / window.innerWidth) * 100;
+    const centerYPercent = (centerY / window.innerHeight) * 100;
+
+    // Clear area size (slightly larger than grid)
+    const clearRadius = Math.max(gridRect.width, gridRect.height) * 0.6;
+    const clearRadiusVW = (clearRadius / window.innerWidth) * 100;
+
+    // Max darkness at edges (increases with intensity)
+    const maxDarkness = 0.12 * intensity; // up to 12% darker at edges (subtle)
+
+    // Create radial gradient: clear center, gradually darkening edges
+    // The gradient fades from transparent center to dark edges
+    const gradient = `radial-gradient(
+        ellipse ${clearRadiusVW * 2.5}vw ${clearRadiusVW * 2.5}vw at ${centerXPercent}% ${centerYPercent}%,
+        transparent 0%,
+        transparent 30%,
+        rgba(0, 0, 0, ${maxDarkness * 0.3}) 50%,
+        rgba(0, 0, 0, ${maxDarkness * 0.6}) 70%,
+        rgba(0, 0, 0, ${maxDarkness}) 100%
+    )`;
+
+    focusVignette.style.background = gradient;
+    focusVignette.style.opacity = "1";
+}
+
+// Start focus mode tracking when game begins
+function startFocusModeTracking() {
+    focusModeStartTime = Date.now();
+    focusModeActive = false;
+    focusModeIntensity = 0;
+
+    // Reset visual state
+    focusVignette.style.opacity = "0";
+    grid.classList.remove("focus-mode");
+    document.body.classList.remove("focus-mode");
+
+    // Start the focus mode update loop
+    updateFocusModeLoop();
+}
+
+// Update focus mode based on elapsed play time
+function updateFocusModeLoop() {
+    if (!isRunning) return;
+
+    const elapsed = Date.now() - focusModeStartTime;
+
+    if (elapsed >= FOCUS_MODE_DELAY && false) { // TODO disabled for now
+        // Past the 1 minute mark, start transitioning in
+        const transitionElapsed = elapsed - FOCUS_MODE_DELAY;
+        const targetIntensity = Math.min(transitionElapsed / FOCUS_MODE_TRANSITION_DURATION, 1);
+
+        // Smooth easing for the transition (ease in out)
+        const easedIntensity = targetIntensity < 0.5
+            ? 2 * targetIntensity * targetIntensity
+            : 1 - Math.pow(-2 * targetIntensity + 2, 2) / 2;
+
+        focusModeIntensity = easedIntensity;
+        focusModeActive = true;
+
+        // Update visual effects
+        updateFocusVignette(focusModeIntensity);
+
+        // Gradually darken body background
+        const baseBg = { r: 255, g: 239, b: 217 }; // #ffefd9
+        const darkenAmount = focusModeIntensity * 5; // darken by up to 5 on each channel (subtle)
+        const newBg = `rgb(${Math.round(baseBg.r - darkenAmount)}, ${Math.round(baseBg.g - darkenAmount)}, ${Math.round(baseBg.b - darkenAmount)})`;
+        document.body.style.background = newBg;
+    }
+
+    // Continue the loop
+    focusModeTransitionId = requestAnimationFrame(updateFocusModeLoop);
+}
+
+// Stop focus mode and reset visual state
+function stopFocusMode() {
+    if (focusModeTransitionId) {
+        cancelAnimationFrame(focusModeTransitionId);
+        focusModeTransitionId = null;
+    }
+
+    focusModeActive = false;
+    focusModeIntensity = 0;
+    focusModeStartTime = null;
+
+    // Smoothly fade out the vignette
+    focusVignette.style.transition = "opacity 0.5s ease";
+    focusVignette.style.opacity = "0";
+
+    // Remove focus mode class
+    document.body.classList.remove("focus-mode");
+
+    // Restore original body background with transition
+    document.body.style.transition = "background 0.5s ease";
+    document.body.style.background = "#ffefd9ec";
+
+    // Reset transition after it completes
+    setTimeout(() => {
+        document.body.style.transition = "";
+        focusVignette.style.transition = "";
+    }, 500);
+}
+
+// Update vignette position on window resize
+window.addEventListener("resize", () => {
+    if (focusModeActive && isRunning) {
+        updateFocusVignette(focusModeIntensity);
+    }
+});
+
+// Debug: Test focus mode button (simulates 1 minute of play)
+const testFocusModeBtn = document.getElementById("testFocusModeBtn");
+let focusModeTestActive = false;
+
+testFocusModeBtn.addEventListener("click", () => {
+    if (!focusModeTestActive) {
+        // Activate focus mode immediately for testing
+        focusModeTestActive = true;
+        testFocusModeBtn.textContent = "Reset Focus Mode";
+        testFocusModeBtn.style.background = "#4caf50";
+        testFocusModeBtn.style.color = "white";
+
+        // Simulate being past the 1 minute mark by setting start time in the past
+        focusModeStartTime = Date.now() - FOCUS_MODE_DELAY - 1000;
+        focusModeActive = true;
+
+        // Animate to full intensity over 2 seconds for quick preview
+        let testIntensity = 0;
+        const testInterval = setInterval(() => {
+            testIntensity += 0.05;
+            if (testIntensity >= 1) {
+                testIntensity = 1;
+                clearInterval(testInterval);
+            }
+            focusModeIntensity = testIntensity;
+            updateFocusVignette(focusModeIntensity);
+
+            // Update grid brightness
+            if (focusModeIntensity > 0.1) {
+                grid.classList.add("focus-mode");
+            }
+
+            // Darken body background
+            const baseBg = { r: 255, g: 239, b: 217 };
+            const darkenAmount = focusModeIntensity * 5;
+            const newBg = `rgb(${Math.round(baseBg.r - darkenAmount)}, ${Math.round(baseBg.g - darkenAmount)}, ${Math.round(baseBg.b - darkenAmount)})`;
+            document.body.style.background = newBg;
+        }, 100);
+    } else {
+        // Reset focus mode
+        focusModeTestActive = false;
+        testFocusModeBtn.textContent = "Test Focus Mode";
+        testFocusModeBtn.style.background = "";
+        testFocusModeBtn.style.color = "";
+
+        stopFocusMode();
+    }
+});

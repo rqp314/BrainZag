@@ -1,0 +1,392 @@
+<!--
+    Author: BrainZag
+    Repository: https://github.com/rqp314/BrainZag
+    License: See LICENSE file
+    Copyright (c) 2026 BrainZag
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+    <title>BrainZag</title>
+    <meta name="description" content="Improve your working memory performance with 'Color N-back' brain training.">
+
+    <!-- iOS Web App -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="BrainZag">
+
+    <!-- Android theme -->
+    <meta name="theme-color" content="#ffefd9">
+
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
+
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent; /* Remove tap highlight on iOS */
+            touch-action: manipulation; /* Disable double-tap zoom, keeps pinch */
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: #ffefd9ec;
+            margin: 0;
+            padding: 20px;
+            padding-top: max(20px, env(safe-area-inset-top)); /* iPhone notch */
+            padding-bottom: max(20px, env(safe-area-inset-bottom)); /* iPhone home indicator */
+            padding-left: max(20px, env(safe-area-inset-left));
+            padding-right: max(20px, env(safe-area-inset-right));
+            overscroll-behavior: none; /* Prevent pull-to-refresh */
+            -webkit-user-select: none; /* Prevent text selection during gameplay */
+            user-select: none;
+        }
+
+        #stopBtn {
+            font-size: 12px;
+            padding: 6px 10px;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 5px;
+        }
+
+        #startBtn, #matchBtn {
+            font-size: 20px;
+            padding: 34px 55px;
+        }
+
+        #matchBtn {
+            margin-top: 20px;
+        }
+
+        #timerProgress {
+            width: 280px; /* slightly narrower than 300px grid */
+            height: 8px;
+            background: #ddd;
+            border-radius: 4px;
+            overflow: visible;
+            margin: 0 auto;
+            position: relative;
+            transition: height 0.3s ease;
+        }
+
+        #timerFill {
+            height: 100%;
+            width: 0%;
+            background: #57b9c6;
+            transition: width 0.3s linear;
+        }
+
+        #controls {
+            margin-bottom: 20px;
+        }
+
+        select, button {
+            padding: 10px 15px;
+            font-size: 16px;
+        }
+
+        #nBackButtons {
+            width: 300px;
+            min-height: 40px;
+            margin: 0 auto 20px auto;
+            display: flex;
+            gap: 3px;
+            justify-content: stretch;
+            align-items: flex-end;
+        }
+
+        .n-back-btn {
+            position: relative;
+            flex: 1;
+            height: 32px;
+            border: none;
+            border-radius: 3px;
+            background: rgba(221, 221, 221, 0.6);
+            cursor: pointer;
+            transition: height 0.15s ease, flex-basis 0.15s ease, font-size 0.15s ease, background 0.15s ease;
+            font-size: 11px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #333;
+            overflow: hidden;
+        }
+
+        .n-back-btn:hover:not(.playing) {
+            background: rgba(221, 221, 221, 0.8);
+        }
+
+        .n-back-btn.large {
+            height: 40px;
+            flex-basis: 80px;
+            flex-grow: 0;
+            flex-shrink: 0;
+            font-size: 16px;
+            background: rgba(221, 221, 221, 0.8);
+            z-index: 1;
+        }
+
+        .n-back-btn.playing {
+            cursor: default;
+            height: 8px;
+            background: rgba(221, 221, 221, 0.6);
+        }
+
+        .n-back-btn.playing.large {
+            height: 40px;
+            flex-basis: 80px;
+            flex-grow: 0;
+            flex-shrink: 0;
+            font-size: 16px;
+            color: rgba(51, 51, 51, 0.5);
+        }
+
+        .n-back-btn-text {
+            position: relative;
+            z-index: 1;
+            font-weight: bold;
+        }
+
+        #grid {
+            width: 300px;
+            height: 300px;
+            margin: 20px auto;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 2px;
+            position: relative;
+            transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        #grid.grid-bounce {
+            animation: gridBounce 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes gridBounce {
+            0% {
+                transform: scale(1);
+            }
+            35% {
+                transform: scale(0.94);
+            }
+            65% {
+                transform: scale(1.04);
+            }
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .bg-cell {
+            background: #c3b9b9;
+            border-radius: 0px;
+            transition: transform 0.12s ease-out;
+            transform-origin: center;
+        }
+
+        .bg-cell.squish-right {
+            transform: scaleX(0.92) scaleY(0.92);
+            transform-origin: top left;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .bg-cell.squish-left {
+            transform: scaleX(0.92) scaleY(0.92);
+            transform-origin: top right;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* Round corners only for corner cells */
+        .bg-cell:nth-child(1) {
+            border-top-left-radius: 8px;
+        }
+        .bg-cell:nth-child(3) {
+            border-top-right-radius: 8px;
+        }
+        .bg-cell:nth-child(7) {
+            border-bottom-left-radius: 8px;
+        }
+        .bg-cell:nth-child(9) {
+            border-bottom-right-radius: 8px;
+        }
+
+        #overlay-grid {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 2px;
+            pointer-events: none;
+        }
+
+        .cell {
+            background: transparent;
+            border-radius: 8px;
+            position: relative;
+            width: 85%;
+            height: 85%;
+            margin: auto;
+            filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.25));
+            transition: transform 0.12s ease-out;
+            transform-origin: center;
+        }
+
+        .cell.squish-right {
+            transform: scaleX(0.92) scaleY(0.92);
+            transform-origin: top left;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .cell.squish-left {
+            transform: scaleX(0.92) scaleY(0.92);
+            transform-origin: top right;
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        #results {
+            margin-top: 20px;
+            font-size: 18px;
+        }
+
+        /* Focus Mode Vignette Overlay */
+        #focusVignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        /* Darken body background during focus mode */
+        body.focus-mode {
+            transition: background 0.5s ease;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Focus Mode Vignette Overlay (darkens periphery during sustained play) -->
+    <div id="focusVignette"></div>
+
+    <div id="controls">
+        <div id="nBackButtons">
+            <button class="n-back-btn" data-n="1"></button>
+            <button class="n-back-btn" data-n="2"></button>
+            <button class="n-back-btn" data-n="3"></button>
+            <button class="n-back-btn" data-n="4"></button>
+            <button class="n-back-btn" data-n="5"></button>
+            <button class="n-back-btn" data-n="6"></button>
+        </div>
+    </div>
+
+    <div id="grid"></div>
+
+    <div style="position: relative; width: 280px; margin: 10px auto;">
+        <div id="timerProgress" style="position:relative; width:280px; height:8px; background:#ddd; border-radius:4px; overflow:visible; transition: height 0.3s ease;">
+            <div id="timerFill" style="height:100%; width:0%; background:#57b9c6; transition: width 0.3s linear;"></div>
+        </div>
+        <button id="stopBtn" disabled style="display: none;">Break</button>
+    </div>
+
+    <div id="results"></div>
+
+    <button id="startBtn">Start (Space)</button>
+    <button id="matchBtn" disabled style="display: none;">Match (Space)</button>
+
+    <div id="extraColorsContainer" style="display: flex; justify-content: center; gap: 2px; margin-top: 10px; flex-wrap: wrap; max-width: 300px; margin-left: auto; margin-right: auto;"></div>
+
+    <div id="debugSection" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ccc;">
+        <p style="font-size: 12px; color: #666;">-- [ Debug Tools ] --</p>
+        <div id="roundDisplay" style="font-size: 12px; margin-bottom: 10px;">Round: 0 (Infinite)</div>
+        <button id="toggleStatsBtn" style="font-size: 12px; padding: 5px 10px;">Hide Stats</button>
+        <button id="showColorsBtn" style="font-size: 12px; padding: 5px 10px;">Show Colors</button>
+        <button id="doubleSpeedBtn" style="font-size: 12px; padding: 5px 10px;">Speed: 2x</button>
+        <button id="autopilotBtn" style="font-size: 12px; padding: 5px 10px;">Autopilot: Off</button>
+        <button id="clearStorageBtn" style="font-size: 12px; padding: 5px 10px;">Clear Storage</button>
+        <button id="debugSetTimeBtn" style="font-size: 12px; padding: 5px 10px;">Set to 18min + 80%</button>
+        <button id="regenIndicatorsBtn" style="font-size: 12px; padding: 5px 10px;">Regenerate Indicators</button>
+        <button id="showHistoryBtn" style="font-size: 12px; padding: 5px 10px;">Show History</button>
+        <button id="showGraphBtn" style="font-size: 12px; padding: 5px 10px;">Show Graph</button>
+        <button id="testFocusModeBtn" style="font-size: 12px; padding: 5px 10px;">Test Focus Mode</button>
+
+        <div id="historyContainer" style="display: none; margin-top: 15px; padding: 12px; background: #f5f5f5; border-radius: 8px; max-width: 700px; margin-left: auto; margin-right: auto;">
+            <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 13px; color: #333;">Last 10 Trials</h3>
+            <div id="historyDisplay" style="font-family: Arial, sans-serif; font-size: 12px;"></div>
+            <div style="margin-top: 10px; font-size: 10px; color: #666; text-align: center;">
+                <span style="background: #4caf50; padding: 1px 4px; border-radius: 2px; color: white; font-weight: bold;">M</span> Match
+                <span style="margin-left: 8px;"></span>
+                <span style="background: #f44336; padding: 1px 4px; border-radius: 2px; color: white; font-weight: bold;">✗</span> False+
+                <span style="margin-left: 8px;"></span>
+                <span style="background: #f44336; padding: 1px 4px; border-radius: 2px; color: white; font-weight: bold;">!</span> Miss
+                <span style="margin-left: 8px;"></span>
+                <span style="background: #ffeb3b; padding: 1px 4px; border-radius: 2px; font-weight: bold;">✓</span> Clicked
+            </div>
+        </div>
+
+        <div id="graphContainer" style="display: none; margin-top: 15px; padding: 12px; background: #f5f5f5; border-radius: 8px; max-width: 700px; margin-left: auto; margin-right: auto;">
+            <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 13px; color: #333;">Current Working Memory Load</h3>
+            <div id="graphDisplay" style="width: 100%; height: 300px; background: white; border-radius: 4px; position: relative;"></div>
+            <div style="margin-top: 10px; font-size: 10px; color: #666; text-align: center;">
+                <span style="display: inline-block; width: 10px; height: 10px; background: #4caf50; border-radius: 50%; vertical-align: middle;"></span> Correct
+                <span style="margin-left: 12px;"></span>
+                <span style="display: inline-block; width: 10px; height: 10px; background: #f44336; border-radius: 50%; vertical-align: middle;"></span> Error
+                <span style="margin-left: 12px;"></span>
+                <span style="display: inline-block; width: 30px; height: 2px; background: #2196F3; vertical-align: middle;"></span> Current Load
+                <span style="margin-left: 12px;"></span>
+                <span style="display: inline-block; width: 30px; height: 1px; background: #999; border-top: 2px dashed #999; vertical-align: middle;"></span> Max
+            </div>
+        </div>
+
+        <br>
+        <div id="adaptiveStats" style="margin-top: 20px; font-family: 'Courier New', monospace; font-size: 14px; text-align: left; display: inline-block; white-space: pre-wrap; line-height: 1.4; color: #000;"></div>
+        <div style="border-bottom: 1px solid #ccc; margin: 15px 0;"></div>
+    </div>
+
+    <footer id="githubFooter" style="margin-top: 40px; padding: 20px; text-align: center;">
+        <a href="https://github.com/rqp314/BrainZag" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: #333; font-size: 14px;">
+            <img src="GitHub_Invertocat_Black_Clearspace.png" alt="GitHub" style="width: 24px; height: 24px;">
+            <span>GitHub</span>
+        </a>
+    </footer>
+
+    <script src="core.js"></script>
+    <script src="game.js"></script>
+    <script>
+        // Register service worker for offline support
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then((registration) => {
+                    console.log('Service Worker registered');
+
+                    // Check for updates when tab becomes visible
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.visibilityState === 'visible') {
+                            registration.update();
+                        }
+                    });
+                })
+                .catch((error) => {
+                    console.log('Service Worker registration failed:', error);
+                });
+        }
+    </script>
+</body>
+</html>
