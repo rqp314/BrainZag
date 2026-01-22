@@ -32,6 +32,15 @@
             touch-action: manipulation; /* Disable double-tap zoom, keeps pinch */
         }
 
+        /* Remove iOS default form styling globally */
+        button, input, select, textarea {
+            -webkit-appearance: none;
+            appearance: none;
+            border-radius: 8px;
+            border: none;
+            background: #e0e0e0;
+        }
+
         body {
             font-family: Arial, sans-serif;
             text-align: center;
@@ -59,11 +68,6 @@
         #startBtn, #matchBtn {
             font-size: 20px;
             padding: 34px 55px;
-            -webkit-appearance: none;
-            appearance: none;
-            background: #e0e0e0;
-            border: none;
-            border-radius: 8px;
             cursor: pointer;
         }
 
