@@ -1290,13 +1290,15 @@ function showResults() {
     }
 
     resultsEl.innerHTML = `
-     <div style="text-align:left; display:inline-block; margin-top:10px;">
+     <div style="text-align:left; display:inline-block; margin-top:5px;">
         <p>
             <strong>Accuracy:</strong>
             <span id="accuracyNumber">0</span>%
             <br>
             <strong>Correct:</strong> ${correctMatches}/${totalTargets}
             | <strong>Incorrect:</strong> ${incorrectMatches}
+            <br>
+            <span style="font-size: 12px; color: #666;">Total Rounds: ${rounds}</span>
         </p>
     </div>
     `;

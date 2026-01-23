@@ -32,6 +32,10 @@
             touch-action: manipulation; /* Disable double-tap zoom, keeps pinch */
         }
 
+        html, body {
+            overflow-x: hidden; /* Prevent horizontal scrolling on mobile */
+        }
+
         /* Remove iOS default form styling globally */
         button, input, select, textarea {
             -webkit-appearance: none;
@@ -39,6 +43,7 @@
             border-radius: 8px;
             border: none;
             background: #e0e0e0;
+            color: #333; /* Fix iOS Safari blue text */
         }
 
         body {
@@ -76,7 +81,7 @@
         }
 
         #timerProgress {
-            width: 280px; /* slightly narrower than 300px grid */
+            width: 100%;
             height: 8px;
             background: #ddd;
             border-radius: 4px;
@@ -173,26 +178,30 @@
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             grid-template-rows: repeat(3, 1fr);
-            gap: 2px;
+            gap: 1px;
             position: relative;
             transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
         /* Mobile: grid fills most of screen width */
         @media (max-width: 480px) {
+            body {
+                padding-left: 12px;
+                padding-right: 12px;
+            }
             #grid {
-                width: calc(100vw - 32px);
-                height: calc(100vw - 32px);
-                max-width: 400px;
-                max-height: 400px;
+                width: calc(100vw - 24px);
+                height: calc(100vw - 24px);
+                max-width: 420px;
+                max-height: 420px;
             }
             #nBackButtons {
-                width: calc(100vw - 32px);
-                max-width: 400px;
+                width: calc(100vw - 24px);
+                max-width: 420px;
             }
-            #timerProgress {
-                width: calc(100vw - 48px) !important;
-                max-width: 380px;
+            #timerWrapper {
+                width: calc(100vw - 44px) !important;
+                max-width: 400px;
             }
         }
 
@@ -286,8 +295,9 @@
         }
 
         #results {
-            margin-top: 20px;
+            margin-top: 5px;
             font-size: 18px;
+            min-height: 20px;
         }
 
         /* Focus Mode Vignette Overlay */
@@ -307,10 +317,53 @@
         body.focus-mode {
             transition: background 0.5s ease;
         }
+
+        /* Desktop: blurred side panels for focused center */
+        .side-blur {
+            display: none;
+        }
+
+        @media (min-width: 600px) {
+            .side-blur {
+                display: block;
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                width: 120px;
+                pointer-events: none;
+                z-index: 10;
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+            }
+            .side-blur.left {
+                left: 0;
+                background: linear-gradient(to right, rgba(200, 180, 150, 0.4) 0%, rgba(200, 180, 150, 0) 100%);
+            }
+            .side-blur.right {
+                right: 0;
+                background: linear-gradient(to left, rgba(200, 180, 150, 0.4) 0%, rgba(200, 180, 150, 0) 100%);
+            }
+        }
+
+        @media (min-width: 800px) {
+            .side-blur {
+                width: 180px;
+            }
+        }
+
+        @media (min-width: 1000px) {
+            .side-blur {
+                width: 250px;
+            }
+        }
     </style>
 </head>
 
 <body>
+    <!-- Desktop: blurred side panels -->
+    <div class="side-blur left"></div>
+    <div class="side-blur right"></div>
+
     <!-- Focus Mode Vignette Overlay (darkens periphery during sustained play) -->
     <div id="focusVignette"></div>
 
@@ -327,8 +380,8 @@
 
     <div id="grid"></div>
 
-    <div style="position: relative; width: 280px; margin: 10px auto;">
-        <div id="timerProgress" style="position:relative; width:280px; height:8px; background:#ddd; border-radius:4px; overflow:visible; transition: height 0.3s ease;">
+    <div id="timerWrapper" style="position: relative; width: 280px; margin: 5px auto;">
+        <div id="timerProgress" style="position:relative; width:100%; height:8px; background:#ddd; border-radius:4px; overflow:visible; transition: height 0.3s ease;">
             <div id="timerFill" style="height:100%; width:0%; background:#57b9c6; transition: width 0.3s linear;"></div>
         </div>
         <button id="stopBtn" disabled style="display: none;">Break</button>
@@ -341,7 +394,7 @@
 
     <div id="extraColorsContainer" style="display: flex; justify-content: center; gap: 2px; margin-top: 10px; flex-wrap: wrap; max-width: 300px; margin-left: auto; margin-right: auto;"></div>
 
-    <div id="debugSection" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ccc;">
+    <div id="debugSection" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #ccc;">
         <p style="font-size: 12px; color: #666;">-- [ Debug Tools ] --</p>
         <div id="roundDisplay" style="font-size: 12px; margin-bottom: 10px;">Round: 0 (Infinite)</div>
         <button id="toggleStatsBtn" style="font-size: 12px; padding: 5px 10px;">Hide Stats</button>
@@ -388,7 +441,7 @@
         <div style="border-bottom: 1px solid #ccc; margin: 15px 0;"></div>
     </div>
 
-    <footer id="githubFooter" style="margin-top: 40px; padding: 20px; text-align: center;">
+    <footer id="githubFooter" style="margin-top: 0; padding: 10px; text-align: center;">
         <a href="https://github.com/rqp314/BrainZag" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: #333; font-size: 14px;">
             <img src="GitHub_Invertocat_Black_Clearspace.png" alt="GitHub" style="width: 24px; height: 24px;">
             <span>GitHub</span>
