@@ -22,6 +22,7 @@
     <meta name="theme-color" content="#ffefd9">
 
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="manifest" href="/site.webmanifest">
@@ -277,7 +278,7 @@
             width: 85%;
             height: 85%;
             margin: auto;
-            filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.25));
+            outline: none;
             transition: transform 0.12s ease-out;
             transform-origin: center;
         }
@@ -316,6 +317,39 @@
         /* Darken body background during focus mode */
         body.focus-mode {
             transition: background 0.5s ease;
+        }
+
+        /* Daily playtime popup tooltip */
+        #playtimePopup {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) scale(0.9);
+            background: rgba(50, 50, 50, 0.9);
+            color: white;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 100;
+        }
+
+        #playtimePopup.visible {
+            opacity: 1;
+            transform: translateX(-50%) scale(1);
+        }
+
+        #playtimePopup::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: rgba(50, 50, 50, 0.9);
         }
 
         /* Desktop: blurred side panels for focused center */
@@ -381,8 +415,9 @@
     <div id="grid"></div>
 
     <div id="timerWrapper" style="position: relative; width: 280px; margin: 5px auto;">
-        <div id="timerProgress" style="position:relative; width:100%; height:8px; background:#ddd; border-radius:4px; overflow:visible; transition: height 0.3s ease;">
+        <div id="timerProgress" style="position:relative; width:100%; height:8px; background:#ddd; border-radius:4px; overflow:visible; transition: height 0.3s ease; cursor: pointer;">
             <div id="timerFill" style="height:100%; width:0%; background:#57b9c6; transition: width 0.3s linear;"></div>
+            <div id="playtimePopup">Daily session tracker</div>
         </div>
         <button id="stopBtn" disabled style="display: none;">Break</button>
     </div>

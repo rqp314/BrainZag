@@ -811,6 +811,7 @@ function nextStimulus() {
     reactionTimer.startTrial();
 
     clearGrid();
+    resetAllCells(); // thorough reset for mobile rendering glitches
 
     // Use adaptive system to generate next tile
     const tile = adaptiveGame.generateNextTile();
@@ -859,6 +860,7 @@ function nextStimulus() {
     currentBgCell = bgCells[actualCellIndex];
 
     randomCell.style.background = color;
+    randomCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
     currentActiveCell = randomCell;
     coloredCellVisible = true;
 
@@ -882,6 +884,7 @@ function nextStimulus() {
             return;
         }
         randomCell.style.background = "transparent";
+        randomCell.style.outline = "none";
         coloredCellVisible = false;
         // Don't restore squish animation if it's running
         // Just let the cell disappear
@@ -963,6 +966,7 @@ function clearGrid() {
     const overlayGrid = document.getElementById("overlay-grid");
     overlayGrid.querySelectorAll(".cell").forEach(cell => {
         cell.style.background = "transparent";
+        cell.style.outline = "none";
         cell.classList.remove("squish-right", "squish-left");
     });
 
@@ -979,6 +983,33 @@ function clearGrid() {
         clearTimeout(hideTimeout);
         hideTimeout = null;
     }
+}
+
+// Thorough reset of all cells to fix mobile rendering glitches
+function resetAllCells() {
+    const overlayGrid = document.getElementById("overlay-grid");
+    const cells = overlayGrid.querySelectorAll(".cell");
+    const bgCells = document.querySelectorAll(".bg-cell");
+
+    // Reset all overlay cells
+    cells.forEach(cell => {
+        cell.style.background = "transparent";
+        cell.style.outline = "none";
+        cell.style.transform = "";
+        cell.style.opacity = "";
+        cell.classList.remove("squish-right", "squish-left");
+        // Force reflow to ensure styles are applied
+        void cell.offsetWidth;
+    });
+
+    // Reset all background cells
+    bgCells.forEach(cell => {
+        cell.style.transform = "";
+        cell.style.opacity = "";
+        cell.classList.remove("squish-right", "squish-left");
+        // Force reflow
+        void cell.offsetWidth;
+    });
 }
 
 function handleMatch() {
@@ -1289,6 +1320,20 @@ function showResults() {
         percentage = Math.round((correctMatches / denominator) * 100);
     }
 
+    // Get memory load info (session average)
+    let memoryLoadHtml = '';
+    if (adaptiveGame && baselineHistory.length > 0) {
+        const stats = adaptiveGame.getStats();
+        const maxUniqueColors = stats.workingMemory.maxUniqueColors;
+
+        // Calculate average load across the session
+        const avgLoad = baselineHistory.reduce((sum, entry) => sum + entry.baseline, 0) / baselineHistory.length;
+        const roundedAvg = Math.round(avgLoad * 10) / 10; // round to 1 decimal
+
+        const loadBar = '█'.repeat(Math.floor(avgLoad)) + '░'.repeat(Math.floor(maxUniqueColors - avgLoad));
+        memoryLoadHtml = `<br><span style="font-size: 12px; color: #666;">Memory Load: ${loadBar}  ${roundedAvg} / ${maxUniqueColors}</span>`;
+    }
+
     resultsEl.innerHTML = `
      <div style="text-align:left; display:inline-block; margin-top:5px;">
         <p>
@@ -1299,6 +1344,7 @@ function showResults() {
             | <strong>Incorrect:</strong> ${incorrectMatches}
             <br>
             <span style="font-size: 12px; color: #666;">Total Rounds: ${rounds}</span>
+            ${memoryLoadHtml}
         </p>
     </div>
     `;
@@ -1480,7 +1526,7 @@ function showAllColors() {
             extraCell.style.height = "95px";
             extraCell.style.background = COLORS[i].color;
             extraCell.style.borderRadius = "8px";
-            extraCell.style.filter = "drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15))";
+            extraCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
             extraColorsContainer.appendChild(extraCell);
         }
     }
@@ -1996,6 +2042,38 @@ window.addEventListener("resize", () => {
 // Debug: Test focus mode button (simulates 1 minute of play)
 const testFocusModeBtn = document.getElementById("testFocusModeBtn");
 let focusModeTestActive = false;
+
+// ------------------ Daily Playtime Popup ------------------
+
+const playtimePopup = document.getElementById("playtimePopup");
+let playtimePopupTimeout = null;
+
+function showPlaytimePopup() {
+    // Only show when NOT in playing phase
+    if (isRunning) return;
+
+    // Clear any existing timeout
+    if (playtimePopupTimeout) {
+        clearTimeout(playtimePopupTimeout);
+    }
+
+    // Show the popup
+    playtimePopup.classList.add("visible");
+
+    // Hide after x seconds
+    playtimePopupTimeout = setTimeout(() => {
+        playtimePopup.classList.remove("visible");
+    }, 1618);
+}
+
+// Click handler for progress bar
+timerProgress.addEventListener("click", showPlaytimePopup);
+
+// Also support touch events for mobile
+timerProgress.addEventListener("touchend", (e) => {
+    e.preventDefault(); // prevent double firing with click
+    showPlaytimePopup();
+});
 
 testFocusModeBtn.addEventListener("click", () => {
     if (!focusModeTestActive) {
