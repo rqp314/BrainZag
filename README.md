@@ -11,7 +11,9 @@ BrainZag is a "Color [N-back](https://en.wikipedia.org/wiki/N-back)" brain train
 </p>
 
 ### How to play
-- In your mind try to update the information "***going forward + looking backwards***", given an example sequence: *yellow, blue, red* - update your mind with: [*yellow*], [*blue -> yellow*] and [*red -> blue -> yellow*].
+- Basic gameplay: You are shown a sequence of colors one at a time. Your goal is to identify **if the <u>current color</u> matches the one from N steps earlier** in the sequence. For example in a 2-back game, if the sequence is: *red, blue, <u>red</u>* - you would recognize the *<u>current red</u>* as a match to the *red two steps before* -> click Match.
+
+- In your mind try to update the information "***going forward + looking backwards***", given an example sequence: *yellow, blue, <u>red</u>* - update your mind with: [*yellow*], [*blue -> yellow*] and [*<u>red</u> -> blue -> yellow*].
 
 - While playing, **avoid trying to actively repeat** the tiles very quickly in order to refresh them. Rather put them into different mind buckets, and let your brain manage them. It will automatically refresh/repeat them, but not you actively + consciously doing it. If you catch yourself speedy repeating them - stop it.
 Rather it should feel like your brain is pinging the buckets on its own, and you merely observe it happening. Overall, it should feel like that your bucket's information is quickly fading away - this "*not fading*" is what we train.
@@ -22,8 +24,8 @@ Rather it should feel like your brain is pinging the buckets on its own, and you
 - Adaptive difficulty - based on your recent performance. BrainZag models your current **working memory capacity** and slowly expands it by introducing more distinct colors per sliding window. This allows for a smoother experience and avoids random difficulty spikes
 - Infinite mode - why stop after 20 trials
 - Responsive UI - doesnt look and feel like any other N-back app
-- Daily time progress bar - it is recommended that you train 20 minutes per day
-- Works fully offline - load the page once and going forward it will work even without internet
+- Daily time progress bar - it is recommended that you **train 20 minutes per day**
+- Works fully offline - load the page once and it will keep working even without internet
 
 <br>
 
@@ -37,10 +39,12 @@ The ability to store and manipulate information for short periods of time.
 
 An improved working memory will help you to **learn faster, remember more, solve novel problems** and **stay focused longer**.
 Together this can improve your performance on exams/tests:
-- Suneung - Gaokao - Todai
-- Wechsler Scales (WAIS) - Stanford-Binet - Raven’s - JEE Advanced
-- CBSE - NEET - UPSC Civil Services Exam
-- MCAT - LSAT - USMLE - BMAT
+- Suneung 🇰🇷
+- Todai 🇯🇵
+- Gaokao 🇨🇳
+- Raven’s - Wechsler Scales (WAIS) - Stanford-Binet
+- CBSE - NEET - JEE Advanced - UPSC CSE 🇮🇳
+- BMAT - MCAT - USMLE - LSAT 🇬🇧 / 🇺🇸
 - Leetcode - Job interviews
 
 ## Color N-back
