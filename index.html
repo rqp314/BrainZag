@@ -116,6 +116,8 @@
             gap: 3px;
             justify-content: stretch;
             align-items: flex-end;
+            position: relative;
+            overflow: visible;
         }
 
         .n-back-btn {
@@ -170,6 +172,61 @@
             position: relative;
             z-index: 1;
             font-weight: bold;
+        }
+
+        .n-back-btn.locked {
+            background: rgba(180, 180, 180, 0.5);
+            color: rgba(120, 120, 120, 0.5);
+            cursor: not-allowed;
+        }
+
+        .n-back-btn.locked:hover {
+            background: rgba(180, 180, 180, 0.5);
+        }
+
+        @keyframes unlockPulse {
+            0% { transform: scale(1); background: rgba(180, 180, 180, 0.5); }
+            25% { transform: scale(1.15); background: rgba(100, 200, 100, 0.7); }
+            50% { transform: scale(1); background: rgba(100, 200, 100, 0.5); }
+            75% { transform: scale(1.1); background: rgba(150, 220, 150, 0.6); }
+            100% { transform: scale(1); background: rgba(221, 221, 221, 0.6); }
+        }
+
+        .n-back-btn.unlock-animate {
+            animation: unlockPulse 0.61803s ease-out 4;
+        }
+
+        /* Locked level tooltip */
+        #lockedPopup {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) scale(0.9);
+            background: rgba(50, 50, 50, 0.9);
+            color: white;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 100;
+        }
+
+        #lockedPopup.visible {
+            opacity: 1;
+            transform: translateX(-50%) scale(1);
+        }
+
+        #lockedPopup::after {
+            content: '';
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-bottom-color: rgba(50, 50, 50, 0.9);
         }
 
         #grid {
@@ -301,6 +358,114 @@
             min-height: 20px;
         }
 
+        /* Activity Heatmap */
+        #activityHeatmap {
+            margin: 8px auto 30px auto;
+            width: 280px;
+            max-width: calc(100% - 20px);
+        }
+
+        .heatmap-container {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .heatmap-month {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .heatmap-month-title {
+            font-size: 9px;
+            color: #666;
+            margin-bottom: 2px;
+        }
+
+        .heatmap-grid {
+            display: flex;
+            gap: 2px;
+        }
+
+        .heatmap-labels {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-right: 2px;
+        }
+
+        .heatmap-day-label {
+            width: 10px;
+            height: 13px;
+            font-size: 8px;
+            color: #999;
+            text-align: right;
+            line-height: 13px;
+        }
+
+        .heatmap-weeks-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .heatmap-weeks {
+            display: flex;
+            gap: 2px;
+        }
+
+        .heatmap-week {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .heatmap-cell {
+            width: 13px;
+            height: 13px;
+            border-radius: 2px;
+        }
+
+        .heatmap-outside {
+            background: transparent;
+        }
+
+        .heatmap-future {
+            background: rgba(200, 200, 200, 0.15);
+        }
+
+        .heatmap-level-0 {
+            background: rgba(200, 200, 200, 0.4);
+        }
+
+        .heatmap-level-1 {
+            background: rgba(76, 175, 80, 0.35);
+        }
+
+        .heatmap-level-2 {
+            background: rgba(76, 175, 80, 0.55);
+        }
+
+        .heatmap-level-3 {
+            background: rgba(76, 175, 80, 0.75);
+        }
+
+        .heatmap-level-4 {
+            background: rgba(76, 175, 80, 0.95);
+        }
+
+        .heatmap-today {
+            outline: 1px solid rgba(0, 0, 0, 0.4);
+        }
+
+        @media (max-width: 480px) {
+            #activityHeatmap {
+                width: calc(100vw - 44px);
+                max-width: 400px;
+            }
+        }
+
         /* Focus Mode Vignette Overlay */
         #focusVignette {
             position: fixed;
@@ -409,6 +574,7 @@
             <button class="n-back-btn" data-n="4"></button>
             <button class="n-back-btn" data-n="5"></button>
             <button class="n-back-btn" data-n="6"></button>
+            <div id="lockedPopup">Locked for now</div>
         </div>
     </div>
 
@@ -423,6 +589,8 @@
     </div>
 
     <div id="results"></div>
+
+    <div id="activityHeatmap"></div>
 
     <button id="startBtn">Start (Space)</button>
     <button id="matchBtn" disabled style="display: none;">Match (Space)</button>
@@ -442,6 +610,7 @@
         <button id="showHistoryBtn" style="font-size: 12px; padding: 5px 10px;">Show History</button>
         <button id="showGraphBtn" style="font-size: 12px; padding: 5px 10px;">Show Graph</button>
         <button id="testFocusModeBtn" style="font-size: 12px; padding: 5px 10px;">Test Focus Mode</button>
+        <button id="testUnlockBtn" style="font-size: 12px; padding: 5px 10px;">Test Unlock</button>
 
         <div id="historyContainer" style="display: none; margin-top: 15px; padding: 12px; background: #f5f5f5; border-radius: 8px; max-width: 700px; margin-left: auto; margin-right: auto;">
             <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 13px; color: #333;">Last 10 Trials</h3>

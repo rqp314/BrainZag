@@ -348,7 +348,7 @@ class UniqueColorController {
   recordTrial(correct, isValid, confidence = 1.0, wasMatch = false, userClicked = false) {
     if (!isValid) return;
 
-    // MATCH trials → immediate full EMA update
+    // MATCH trials -> immediate full EMA update
     if (wasMatch) {
       const score = this.computeWeightedScore(correct, confidence);
 
@@ -360,7 +360,7 @@ class UniqueColorController {
       return;
     }
 
-    // FALSE ALARM (non-match + user clicked) → immediate punishment
+    // FALSE ALARM (non-match + user clicked) -> immediate punishment
     if (!wasMatch && userClicked) {
       const score = this.computeWeightedScore(false, confidence);
 
@@ -372,7 +372,7 @@ class UniqueColorController {
       return;
     }
 
-    // CORRECT REJECTION (non-match + no click) → accumulate streak, deferred micro-reward
+    // CORRECT REJECTION (non-match + no click) -> accumulate streak, deferred micro-reward
     if (!wasMatch && !userClicked) {
       this.correctRejectionStreak++;
 

@@ -177,15 +177,178 @@ let lastCompletedChunk = 0; // track the last completed chunk to detect resets
 let isAnimatingBar = false; // track if progress bar is animating (during stopGame)
 let segmentElements = []; // DOM elements for segmented progress bars during gameplay
 
+// ------------------ Activity Heatmap ------------------
+
+const HEATMAP_TARGET_SECONDS = 1200; // 20 minutes = full green
+
+// Format date as YYYY-MM-DD in local time (not UTC)
+function formatDateLocal(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+// Load activity history from localStorage
+function loadActivityHistory() {
+    try {
+        const saved = localStorage.getItem("activityHistory");
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch (e) {
+        console.error("Failed to load activity history:", e);
+    }
+    return {};
+}
+
+// Save activity history to localStorage
+function saveActivityHistory(history) {
+    try {
+        localStorage.setItem("activityHistory", JSON.stringify(history));
+    } catch (e) {
+        console.error("Failed to save activity history:", e);
+    }
+}
+
+// Save today's activity to history
+function saveTodayToHistory() {
+    const today = formatDateLocal(new Date());
+    const history = loadActivityHistory();
+    history[today] = elapsedSeconds;
+    saveActivityHistory(history);
+}
+
+// Render the activity heatmap (3 months, Monday start, 2 weeks ahead)
+function renderActivityHeatmap() {
+    const container = document.getElementById("activityHeatmap");
+    if (!container) return;
+
+    const history = loadActivityHistory();
+    const today = new Date();
+    const todayStr = formatDateLocal(today);
+
+    // Add today's current progress to history for display
+    history[todayStr] = elapsedSeconds;
+
+    // Month names (3 letter)
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    // Get the 3 months to display (current month and 2 previous)
+    const months = [];
+    for (let i = 2; i >= 0; i--) {
+        const monthDate = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        months.push({
+            year: monthDate.getFullYear(),
+            month: monthDate.getMonth(),
+            name: monthNames[monthDate.getMonth()]
+        });
+    }
+
+    // End date is 2 weeks from now
+    const endDate = new Date(today);
+    endDate.setDate(endDate.getDate() + 14);
+
+    // Fixed 5 weeks per month for uniform display
+    const WEEKS_PER_MONTH = 5;
+
+    let html = '<div class="heatmap-container">';
+
+    // Render each month separately
+    months.forEach((monthInfo, monthIndex) => {
+        const monthStart = new Date(monthInfo.year, monthInfo.month, 1);
+        const monthEnd = new Date(monthInfo.year, monthInfo.month + 1, 0);
+
+        // Align start to Monday
+        const startDayOfWeek = monthStart.getDay();
+        const daysToMonday = startDayOfWeek === 0 ? 6 : startDayOfWeek - 1;
+        const alignedStart = new Date(monthStart);
+        alignedStart.setDate(alignedStart.getDate() - daysToMonday);
+
+        html += '<div class="heatmap-month">';
+        html += '<div class="heatmap-grid">';
+
+        // Day labels (only for first month)
+        if (monthIndex === 0) {
+            html += '<div class="heatmap-labels">';
+            html += '<div class="heatmap-day-label"></div>'; // empty for title row
+            const dayLabels = ['M', '', 'W', '', 'F', '', ''];
+            dayLabels.forEach(label => {
+                html += `<div class="heatmap-day-label">${label}</div>`;
+            });
+            html += '</div>';
+        }
+
+        html += '<div class="heatmap-weeks-container">';
+        html += `<div class="heatmap-month-title">${monthInfo.name}</div>`;
+        html += '<div class="heatmap-weeks">';
+
+        for (let week = 0; week < WEEKS_PER_MONTH; week++) {
+            html += '<div class="heatmap-week">';
+
+            for (let day = 0; day < 7; day++) {
+                const cellDate = new Date(alignedStart);
+                cellDate.setDate(alignedStart.getDate() + week * 7 + day);
+                const dateStr = formatDateLocal(cellDate);
+                const cellMonth = cellDate.getMonth();
+
+                // Check if date is outside this month
+                if (cellMonth !== monthInfo.month) {
+                    html += '<div class="heatmap-cell heatmap-outside"></div>';
+                    continue;
+                }
+
+                // Check if date is in the future (but within 2 weeks for last month)
+                if (cellDate > today) {
+                    if (monthIndex === 2 && cellDate <= endDate) {
+                        html += '<div class="heatmap-cell heatmap-future"></div>';
+                    } else {
+                        html += '<div class="heatmap-cell heatmap-outside"></div>';
+                    }
+                    continue;
+                }
+
+                const seconds = history[dateStr] || 0;
+
+                // Color levels based on playtime thresholds
+                let colorClass = 'heatmap-level-0';
+                if (seconds >= 1200) colorClass = 'heatmap-level-4';      // 20+ min
+                else if (seconds >= 600) colorClass = 'heatmap-level-3';  // 10+ min
+                else if (seconds >= 300) colorClass = 'heatmap-level-2';  // 5+ min
+                else if (seconds >= 30) colorClass = 'heatmap-level-1';   // 30+ sec
+
+                const isToday = dateStr === todayStr;
+                const todayClass = isToday ? ' heatmap-today' : '';
+
+                html += `<div class="heatmap-cell ${colorClass}${todayClass}" title="${dateStr}: ${Math.floor(seconds / 60)}min"></div>`;
+            }
+
+            html += '</div>';
+        }
+
+        html += '</div></div></div></div>';
+    });
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
 // Load saved timer from localStorage or reset if new day
 function loadDailyTimer() {
     const savedDate = localStorage.getItem("dailyPlayDate");
     const savedSeconds = parseInt(localStorage.getItem("dailyPlaySeconds"));
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDateLocal(new Date());
 
     if (savedDate === today && !isNaN(savedSeconds)) {
         elapsedSeconds = savedSeconds;
     } else {
+        // Save previous day's data to history before resetting
+        if (savedDate && !isNaN(savedSeconds) && savedSeconds > 0) {
+            const history = loadActivityHistory();
+            history[savedDate] = savedSeconds;
+            saveActivityHistory(history);
+        }
+
         elapsedSeconds = 0;
         localStorage.setItem("dailyPlaySeconds", "0");
         localStorage.setItem("dailyPlayDate", today);
@@ -193,6 +356,7 @@ function loadDailyTimer() {
 
     updateTimerUI();
     loadMinutePositions();
+    renderActivityHeatmap();
 }
 
 function generateFibonacciMinutePositions() {
@@ -216,7 +380,7 @@ function generateFibonacciMinutePositions() {
 function loadMinutePositions() {
     const savedDate = localStorage.getItem("minutePositionsDate");
     const savedPositions = localStorage.getItem("minutePositions");
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDateLocal(new Date());
 
     if (savedDate === today && savedPositions) {
         minutePositions = JSON.parse(savedPositions);
@@ -228,7 +392,7 @@ function loadMinutePositions() {
 
 // Save minute positions to localStorage
 function saveMinutePositions() {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDateLocal(new Date());
     localStorage.setItem("minutePositions", JSON.stringify(minutePositions));
     localStorage.setItem("minutePositionsDate", today);
 }
@@ -242,6 +406,7 @@ function regenerateMinutePositions() {
 // Save current daily timer
 function saveDailyTimer() {
     localStorage.setItem("dailyPlaySeconds", elapsedSeconds.toString());
+    saveTodayToHistory();
 }
 
 // Create segmented progress bar (islands with gaps)
@@ -616,11 +781,100 @@ function getNBackAverage(nLevel) {
     return nBackStats[nLevel] ? nBackStats[nLevel].avg : 0;
 }
 
+// ------------------ Level Unlocking System ------------------
+
+let highestUnlockedLevel = 2; // default: levels 1 and 2 are unlocked
+const UNLOCK_THRESHOLD = 80; // 80% accuracy needed to unlock next level
+
+// Load highest unlocked level from localStorage
+function loadUnlockedLevel() {
+    try {
+        const saved = localStorage.getItem("highestUnlockedLevel");
+        if (saved) {
+            highestUnlockedLevel = parseInt(saved);
+        }
+    } catch (e) {
+        console.error("Failed to load unlocked level:", e);
+        highestUnlockedLevel = 2;
+    }
+}
+
+// Save highest unlocked level to localStorage
+function saveUnlockedLevel() {
+    try {
+        localStorage.setItem("highestUnlockedLevel", highestUnlockedLevel.toString());
+    } catch (e) {
+        console.error("Failed to save unlocked level:", e);
+    }
+}
+
+// Check if a level is locked
+function isLevelLocked(level) {
+    return level > highestUnlockedLevel;
+}
+
+// Try to unlock next level (called after a game ends)
+function checkAndUnlockNextLevel(nLevel, accuracy) {
+    // Only check if playing at the highest unlocked level
+    if (nLevel === highestUnlockedLevel && accuracy >= UNLOCK_THRESHOLD) {
+        // Unlock next level (max 6)
+        if (highestUnlockedLevel < 6) {
+            highestUnlockedLevel++;
+            saveUnlockedLevel();
+            console.log(`Unlocked level ${highestUnlockedLevel}!`);
+
+            // Animate the newly unlocked button
+            animateUnlockedButton(highestUnlockedLevel);
+
+            return true; // level was unlocked
+        }
+    }
+    return false; // no unlock
+}
+
+// Animate button when unlocked
+function animateUnlockedButton(level) {
+    const btn = document.querySelector(`.n-back-btn[data-n="${level}"]`);
+    if (btn) {
+        setTimeout(() => {
+            btn.classList.add("unlock-animate");
+            btn.addEventListener("animationend", () => {
+                btn.classList.remove("unlock-animate");
+            }, { once: true });
+        }, 250);
+    }
+}
+
+// Locked level popup
+const lockedPopup = document.getElementById("lockedPopup");
+let lockedPopupTimeout = null;
+
+function showLockedPopup(buttonEl) {
+    // Clear any existing timeout
+    if (lockedPopupTimeout) {
+        clearTimeout(lockedPopupTimeout);
+    }
+
+    // Position popup above the clicked button
+    const btnRect = buttonEl.getBoundingClientRect();
+    const containerRect = document.getElementById("nBackButtons").getBoundingClientRect();
+    const leftOffset = btnRect.left - containerRect.left + btnRect.width / 2;
+    lockedPopup.style.left = `${leftOffset}px`;
+
+    // Show the popup
+    lockedPopup.classList.add("visible");
+
+    lockedPopupTimeout = setTimeout(() => {
+        lockedPopup.classList.remove("visible");
+    }, 1618);
+}
+
 // Update button appearance
 function updateNBackButtons() {
     nBackButtons.forEach(btn => {
         const nValue = parseInt(btn.dataset.n);
         const isSelected = nValue === n;
+        const locked = isLevelLocked(nValue);
 
         // Get or create text element
         let textEl = btn.querySelector('.n-back-btn-text');
@@ -628,6 +882,13 @@ function updateNBackButtons() {
             textEl = document.createElement('span');
             textEl.className = 'n-back-btn-text';
             btn.appendChild(textEl);
+        }
+
+        // Apply or remove locked class
+        if (locked) {
+            btn.classList.add("locked");
+        } else {
+            btn.classList.remove("locked");
         }
 
         if (isRunning) {
@@ -671,6 +932,12 @@ function setupNBackButtons() {
             if (isRunning) return; // can't change during gameplay
 
             const newN = parseInt(btn.dataset.n);
+
+            // Check if level is locked
+            if (isLevelLocked(newN)) {
+                showLockedPopup(btn);
+                return;
+            }
 
             // Update global n variable immediately
             n = newN;
@@ -730,11 +997,18 @@ function createGrid() {
 createGrid();
 loadDailyTimer();
 loadNBackAccuracies();
+loadUnlockedLevel();
 
 // Load saved N-back level preference
 const savedN = localStorage.getItem("selectedN");
 if (savedN) {
-    n = parseInt(savedN);
+    const parsedN = parseInt(savedN);
+    // Make sure saved level is not locked
+    if (isLevelLocked(parsedN)) {
+        n = 1; // Reset to level 1 if saved level is now locked
+    } else {
+        n = parsedN;
+    }
 } else {
     n = 1; // Default to 1-back for first time users
 }
@@ -1148,6 +1422,10 @@ function startGame() {
     const githubFooter = document.getElementById("githubFooter");
     if (githubFooter) githubFooter.style.display = "none";
 
+    // Hide activity heatmap during gameplay
+    const heatmap = document.getElementById("activityHeatmap");
+    if (heatmap) heatmap.style.display = "none";
+
     // Update button visibility (game is now in playing mode)
     startBtn.style.display = "none";
     matchBtn.style.display = "inline-block";
@@ -1340,7 +1618,7 @@ function showResults() {
             <strong>Accuracy:</strong>
             <span id="accuracyNumber">0</span>%
             <br>
-            <strong>Correct:</strong> ${correctMatches}/${totalTargets}
+            <strong>Correct:</strong> ${correctMatches} / ${totalTargets}
             | <strong>Incorrect:</strong> ${incorrectMatches}
             <br>
             <span style="font-size: 12px; color: #666;">Total Rounds: ${rounds}</span>
@@ -1373,6 +1651,9 @@ function showResults() {
 
             // Update running average for this n-back level
             updateNBackAverage(n, percentage);
+
+            // Check if we should unlock the next level
+            checkAndUnlockNextLevel(n, percentage);
 
             // Update button colors immediately after saving accuracy
             updateNBackButtons();
@@ -1600,7 +1881,7 @@ clearStorageBtn.addEventListener("click", () => {
 });
 
 debugSetTimeBtn.addEventListener("click", () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatDateLocal(new Date());
 
     // Set to 18 minutes (1080 seconds)
     elapsedSeconds = 1080;
@@ -2117,5 +2398,24 @@ testFocusModeBtn.addEventListener("click", () => {
         testFocusModeBtn.style.color = "";
 
         stopFocusMode();
+    }
+});
+
+// Debug: Test unlock button
+const testUnlockBtn = document.getElementById("testUnlockBtn");
+testUnlockBtn.addEventListener("click", () => {
+    if (highestUnlockedLevel < 6) {
+        // Unlock next level with animation (immediate for debug)
+        highestUnlockedLevel++;
+        saveUnlockedLevel();
+        updateNBackButtons();
+        animateUnlockedButton(highestUnlockedLevel);
+        testUnlockBtn.textContent = `Test Unlock (${highestUnlockedLevel}/6)`;
+    } else {
+        // Reset to level 2 for testing again
+        highestUnlockedLevel = 2;
+        saveUnlockedLevel();
+        updateNBackButtons();
+        testUnlockBtn.textContent = "Test Unlock (Reset)";
     }
 });

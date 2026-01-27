@@ -11,9 +11,9 @@ BrainZag is a "Color [N-back](https://en.wikipedia.org/wiki/N-back)" brain train
 </p>
 
 ### How to play
-- Basic gameplay: You are shown a sequence of colors one at a time. Your goal is to identify **if the <u>current color</u> matches the one from N steps earlier** in the sequence. For example in a 2-back game, if the sequence is: *red, blue, <u>red</u>* - you would recognize the *<u>current red</u>* as a match to the *red two steps before* -> click Match.
+- Basic gameplay: You are shown a sequence of colors one at a time. Your goal is to identify **if the current color matches the one from N steps earlier** in the sequence. For example in a 2-back game, if the sequence is: *red, blue, red* - you would recognize the *current red* as a match to the *red two steps before* -> click Match.
 
-- In your mind try to update the information "***going forward + looking backwards***", given an example sequence: *yellow, blue, <u>red</u>* - update your mind with: [*yellow*], [*blue -> yellow*] and [*<u>red</u> -> blue -> yellow*].
+- In your mind try to update the information "***going forward + looking backwards***", given an example sequence: *yellow, blue, red* - update your mind with: [*yellow*], [*blue -> yellow*] and [*red -> blue -> yellow*].
 
 - While playing, **avoid trying to actively repeat** the tiles very quickly in order to refresh them. Rather put them into different mind buckets, and let your brain manage them. It will automatically refresh/repeat them, but not you actively + consciously doing it. If you catch yourself speedy repeating them - stop it.
 Rather it should feel like your brain is pinging the buckets on its own, and you merely observe it happening. Overall, it should feel like that your bucket's information is quickly fading away - this "*not fading*" is what we train.
