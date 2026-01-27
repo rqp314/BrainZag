@@ -1608,8 +1608,19 @@ function showResults() {
         const avgLoad = baselineHistory.reduce((sum, entry) => sum + entry.baseline, 0) / baselineHistory.length;
         const roundedAvg = Math.round(avgLoad * 10) / 10; // round to 1 decimal
 
+        // Traffic light color based on load percentage
+        const loadPercent = avgLoad / maxUniqueColors;
+        let loadColor;
+        if (loadPercent <= 0.33) {
+            loadColor = COLORS.find(c => c.name === "green").color; // easy
+        } else if (loadPercent <= 0.66) {
+            loadColor = COLORS.find(c => c.name === "yellow").color; // medium
+        } else {
+            loadColor = COLORS.find(c => c.name === "red").color; // hard
+        }
+
         const loadBar = '█'.repeat(Math.floor(avgLoad)) + '░'.repeat(Math.floor(maxUniqueColors - avgLoad));
-        memoryLoadHtml = `<br><span style="font-size: 12px; color: #666;">Memory Load: ${loadBar}  ${roundedAvg} / ${maxUniqueColors}</span>`;
+        memoryLoadHtml = `<br><span style="font-size: 12px; color: #666;">Memory Load: <span style="color: ${loadColor};">${loadBar}</span>  ${roundedAvg} / ${maxUniqueColors}</span>`;
     }
 
     resultsEl.innerHTML = `
