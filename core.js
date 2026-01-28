@@ -891,6 +891,11 @@ class WorkingMemoryTrainer {
     this.trialNumber = 0;
     this.currentTile = null;
     this.lastTrialCorrect = true;
+    this.excludedPositions = []; // positions to exclude from tile placement
+  }
+
+  setExcludedPositions(positions) {
+    this.excludedPositions = positions || [];
   }
 
   generateNextTrial() {
@@ -994,11 +999,17 @@ class WorkingMemoryTrainer {
   }
 
   generatePosition() {
-    // Simple random position on 3x3 grid
+    // Simple random position on 3x3 grid, excluding deactivated cells
     const positions = [];
     for (let row = 0; row < 3; row++) {
       for (let col = 0; col < 3; col++) {
-        positions.push({ row, col });
+        // Check if this position is excluded
+        const isExcluded = this.excludedPositions.some(
+          excluded => excluded.row === row && excluded.col === col
+        );
+        if (!isExcluded) {
+          positions.push({ row, col });
+        }
       }
     }
     return positions[Math.floor(Math.random() * positions.length)];
@@ -1117,6 +1128,10 @@ class AdaptiveNBackGame {
 
   getCurrentN() {
     return this.currentN;
+  }
+
+  setExcludedPositions(positions) {
+    this.trainer.setExcludedPositions(positions);
   }
 
   getStats() {

@@ -285,8 +285,13 @@
         .bg-cell {
             background: #c3b9b9;
             border-radius: 0px;
-            transition: transform 0.12s ease-out;
+            transition: transform 0.12s ease-out, opacity 0.3s ease-out, background 0.3s ease-out;
             transform-origin: center;
+        }
+
+        .bg-cell.deactivated {
+            background: transparent;
+            pointer-events: none;
         }
 
         .bg-cell.squish-right {

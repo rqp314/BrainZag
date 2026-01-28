@@ -94,6 +94,18 @@ let currentBgCell = null; // track corresponding background cell
 let coloredCellVisible = false; // track if colored cell is currently visible
 let hideTimeout = null; // track timeout for hiding colored cell
 let speedMultiplier = 1; // 1 = normal speed, 2 = double speed
+let deactivatedCells = []; // indices of cells that are hidden for this game (0-8)
+
+// Cell hiding timing system
+let lastActivityTimestamp = null; // when player last had activity (persisted)
+let currentGameStartTime = null; // when current game round started
+let accumulatedPlayTime = 0; // total ms played in current session (resets when away > 5 min)
+let layoutPlayTimeStart = 0; // accumulated play time when current layout was created
+let cellHidingActive = false; // whether cell hiding is currently active
+
+const AWAY_THRESHOLD = 5 * 60 * 1000; // 5 minutes in ms
+const WARMUP_DURATION = 1 * 60 * 1000; // 1 minute warmup before cell hiding starts
+const LAYOUT_DURATION = 2 * 60 * 1000; // 2 minutes per layout (based on play time)
 
 // Adaptive N-Back System
 let adaptiveGame = null;
@@ -162,6 +174,58 @@ function saveAdaptiveGameState() {
         localStorage.setItem('adaptiveGameState', JSON.stringify(state));
     } catch (e) {
         console.error('Failed to save adaptive game state:', e);
+    }
+}
+
+// Get localStorage size in human readable format
+function getLocalStorageSize() {
+    let total = 0;
+    for (let key in localStorage) {
+        if (localStorage.hasOwnProperty(key)) {
+            total += key.length + localStorage[key].length;
+        }
+    }
+    // Convert to human readable
+    if (total < 1024) {
+        return `${total} B`;
+    } else if (total < 1024 * 1024) {
+        return `${(total / 1024).toFixed(1)} KB`;
+    } else {
+        return `${(total / (1024 * 1024)).toFixed(2)} MB`;
+    }
+}
+
+// Save cell hiding state to localStorage
+function saveCellHidingState() {
+    try {
+        const state = {
+            accumulatedPlayTime,
+            layoutPlayTimeStart,
+            cellHidingActive,
+            deactivatedCells
+        };
+        localStorage.setItem('cellHidingState', JSON.stringify(state));
+    } catch (e) {
+        console.error('Failed to save cell hiding state:', e);
+    }
+}
+
+// Load cell hiding state from localStorage
+function loadCellHidingState() {
+    try {
+        const saved = localStorage.getItem('cellHidingState');
+        if (!saved) return;
+
+        const state = JSON.parse(saved);
+        accumulatedPlayTime = state.accumulatedPlayTime || 0;
+        layoutPlayTimeStart = state.layoutPlayTimeStart || 0;
+        cellHidingActive = state.cellHidingActive || false;
+        deactivatedCells = state.deactivatedCells || [];
+
+        // Apply the visual state
+        applyDeactivatedCells();
+    } catch (e) {
+        console.error('Failed to load cell hiding state:', e);
     }
 }
 
@@ -994,7 +1058,116 @@ function createGrid() {
     grid.appendChild(overlayGrid);
 }
 
+// Select 0-3 random cells to deactivate for visual variety
+function selectDeactivatedCells() {
+    const numToDeactivate = Math.floor(Math.random() * 4); // 0, 1, 2, or 3
+    const allIndices = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+
+    // Shuffle and pick first N
+    for (let i = allIndices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allIndices[i], allIndices[j]] = [allIndices[j], allIndices[i]];
+    }
+
+    return allIndices.slice(0, numToDeactivate);
+}
+
+// Apply deactivated cells visually (make them invisible)
+function applyDeactivatedCells() {
+    const bgCells = document.querySelectorAll(".bg-cell");
+    const overlayCells = document.querySelectorAll("#overlay-grid .cell");
+
+    // First reset all cells to active state
+    bgCells.forEach(cell => cell.classList.remove("deactivated"));
+    overlayCells.forEach(cell => cell.classList.remove("deactivated"));
+
+    // Then deactivate selected cells
+    deactivatedCells.forEach(index => {
+        if (bgCells[index]) {
+            bgCells[index].classList.add("deactivated");
+        }
+        if (overlayCells[index]) {
+            overlayCells[index].classList.add("deactivated");
+        }
+    });
+}
+
+// Convert deactivated cell indices to position objects for core.js
+function getExcludedPositions() {
+    return deactivatedCells.map(index => ({
+        row: Math.floor(index / 3),
+        col: index % 3
+    }));
+}
+
+// Load last activity timestamp from localStorage
+function loadLastActivityTimestamp() {
+    try {
+        const saved = localStorage.getItem("lastActivityTimestamp");
+        if (saved) {
+            lastActivityTimestamp = parseInt(saved);
+        }
+    } catch (e) {
+        console.error("Failed to load last activity timestamp:", e);
+    }
+}
+
+// Save last activity timestamp to localStorage
+function saveLastActivityTimestamp() {
+    try {
+        lastActivityTimestamp = Date.now();
+        localStorage.setItem("lastActivityTimestamp", lastActivityTimestamp.toString());
+    } catch (e) {
+        console.error("Failed to save last activity timestamp:", e);
+    }
+}
+
+// Check if player was away for more than 5 minutes
+function wasPlayerAwayTooLong() {
+    if (!lastActivityTimestamp) return true; // first time playing, treat as away
+    const timeSinceLastActivity = Date.now() - lastActivityTimestamp;
+    return timeSinceLastActivity > AWAY_THRESHOLD;
+}
+
+// Get total play time including current game
+function getTotalPlayTime() {
+    let total = accumulatedPlayTime;
+    if (currentGameStartTime && isRunning) {
+        total += Date.now() - currentGameStartTime;
+    }
+    return total;
+}
+
+// Activate cell hiding with a new random layout
+function activateCellHiding() {
+    cellHidingActive = true;
+    deactivatedCells = selectDeactivatedCells();
+    applyDeactivatedCells();
+    layoutPlayTimeStart = getTotalPlayTime(); // use play time, not real time
+
+    // Tell the adaptive game which positions to exclude
+    if (adaptiveGame) {
+        adaptiveGame.setExcludedPositions(getExcludedPositions());
+    }
+
+    console.log(`Cell hiding activated: ${deactivatedCells.length} cells hidden for ${Math.round(LAYOUT_DURATION / 1000)}s of play time`);
+}
+
+// Deactivate cell hiding (show full grid)
+function deactivateCellHiding() {
+    cellHidingActive = false;
+    deactivatedCells = [];
+    applyDeactivatedCells();
+
+    // Tell the adaptive game no positions are excluded
+    if (adaptiveGame) {
+        adaptiveGame.setExcludedPositions([]);
+    }
+}
+
 createGrid();
+loadLastActivityTimestamp();
+loadCellHidingState();
 loadDailyTimer();
 loadNBackAccuracies();
 loadUnlockedLevel();
@@ -1389,6 +1562,47 @@ function startGame() {
     // Just reset the current session history, not the learning data
     adaptiveGame.history = { colors: [], positions: [], timestamps: [] };
 
+    // Initialize cell hiding based on how long player was away
+    if (wasPlayerAwayTooLong()) {
+        // Player was away > 5 min, reset everything and start fresh
+        deactivateCellHiding();
+        accumulatedPlayTime = 0;
+        layoutPlayTimeStart = 0;
+        cellHidingActive = false;
+        saveCellHidingState();
+        console.log("Player was away > 5 min, starting with full grid");
+    } else {
+        // Player returned within 5 min
+        if (cellHidingActive) {
+            // Cell hiding already active, check if layout still valid (based on play time)
+            const layoutPlayTime = accumulatedPlayTime - layoutPlayTimeStart;
+            if (layoutPlayTime < LAYOUT_DURATION) {
+                // Layout still valid, restore and continue with same layout
+                applyDeactivatedCells();
+                adaptiveGame.setExcludedPositions(getExcludedPositions());
+                const remaining = Math.round((LAYOUT_DURATION - layoutPlayTime) / 1000);
+                console.log(`Restoring layout (${deactivatedCells.length} cells hidden, ${remaining}s play time remaining)`);
+            } else {
+                // Layout expired, create a new one
+                deactivatedCells = selectDeactivatedCells();
+                applyDeactivatedCells();
+                layoutPlayTimeStart = accumulatedPlayTime;
+                adaptiveGame.setExcludedPositions(getExcludedPositions());
+                saveCellHidingState();
+                console.log(`Layout expired, new layout: ${deactivatedCells.length} cells hidden for ${Math.round(LAYOUT_DURATION / 1000)}s play time`);
+            }
+        } else if (!cellHidingActive && accumulatedPlayTime >= WARMUP_DURATION) {
+            // Warmup complete, activate cell hiding now (at round start)
+            activateCellHiding();
+            saveCellHidingState();
+            console.log(`Warmup complete, cell hiding activated: ${deactivatedCells.length} cells hidden`);
+        }
+        // If warmup not complete yet, accumulatedPlayTime preserves progress
+    }
+
+    // Mark start of this game round
+    currentGameStartTime = Date.now();
+
     // Clear results and close progress bar
     resultsEl.innerHTML = "";
 
@@ -1576,6 +1790,29 @@ function stopGame(autoEnded = false) {
     if (githubFooter) githubFooter.style.display = "block";
 
     clearGrid();
+
+    // Save activity timestamp for next session timing check
+    saveLastActivityTimestamp();
+
+    // Accumulate play time from this game round
+    if (currentGameStartTime) {
+        accumulatedPlayTime += Date.now() - currentGameStartTime;
+        currentGameStartTime = null;
+    }
+
+    // Check if layout has expired (based on play time)
+    const layoutPlayTime = accumulatedPlayTime - layoutPlayTimeStart;
+    const layoutExpired = cellHidingActive && (layoutPlayTime >= LAYOUT_DURATION);
+
+    // Save cell hiding state (preserves layout for next round)
+    saveCellHidingState();
+
+    // If layout expired, restore full grid on end screen (new layout on next round)
+    // If layout still valid, keep partial grid visible
+    if (layoutExpired) {
+        deactivatedCells = [];
+        applyDeactivatedCells();
+    }
 
     if (rounds >= 1 || autoEnded) {
         showResults();
@@ -1778,6 +2015,47 @@ function updateAdaptiveStatsDisplay() {
         display += makeLine(`Avg RT: ${drift.avgRT}ms | Variability: ${drift.rtVariability}`);
         display += makeLine(`RT Trend: ${drift.slowdownTrend}`);
     }
+
+    // Cell hiding timing info
+    display += '├────────────────────────────────────────────────────┤\n';
+    display += makeLine(`<strong>Grid Layout</strong>`);
+
+    // Calculate total play time
+    let totalPlayTime = accumulatedPlayTime;
+    if (currentGameStartTime && isRunning) {
+        totalPlayTime += Date.now() - currentGameStartTime;
+    }
+
+    if (!cellHidingActive) {
+        // In warmup phase
+        const warmupRemaining = Math.max(0, WARMUP_DURATION - totalPlayTime);
+        const warmupSecs = Math.ceil(warmupRemaining / 1000);
+        const warmupProgress = Math.min(100, Math.round((totalPlayTime / WARMUP_DURATION) * 100));
+        const warmupBar = '▓'.repeat(Math.floor(warmupProgress / 10)) + '░'.repeat(10 - Math.floor(warmupProgress / 10));
+        display += makeLine(`Mode: Warmup (full grid)`);
+        display += makeLine(`Warmup: ${warmupBar} ${warmupProgress}% (${warmupSecs}s play)`);
+    } else {
+        // Cell hiding active (use play time for layout age)
+        const layoutPlayTime = totalPlayTime - layoutPlayTimeStart;
+        const layoutExpired = layoutPlayTime >= LAYOUT_DURATION;
+        const layoutRemaining = Math.max(0, LAYOUT_DURATION - layoutPlayTime);
+        const layoutSecs = Math.ceil(layoutRemaining / 1000);
+        const layoutProgress = Math.min(100, Math.round((layoutPlayTime / LAYOUT_DURATION) * 100));
+        const layoutBar = '▓'.repeat(Math.floor(layoutProgress / 10)) + '░'.repeat(10 - Math.floor(layoutProgress / 10));
+        display += makeLine(`Mode: Cell hiding active`);
+        display += makeLine(`Hidden cells: ${deactivatedCells.length} [${deactivatedCells.join(', ') || 'none'}]`);
+        if (layoutExpired) {
+            display += makeLine(`Layout: EXPIRED (new layout on next round)`);
+        } else {
+            display += makeLine(`Layout: ${layoutBar} ${layoutProgress}% (${layoutSecs}s play left)`);
+        }
+    }
+
+    // LocalStorage size
+    display += '├────────────────────────────────────────────────────┤\n';
+    const lsSize = getLocalStorageSize();
+    display += makeLine(`<strong>Storage</strong>`);
+    display += makeLine(`LocalStorage: ${lsSize}`);
 
     display += '└────────────────────────────────────────────────────┘';
 

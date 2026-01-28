@@ -1,3 +1,13 @@
+/**
+ * Author: BrainZag
+ * Repository: https://github.com/rqp314/BrainZag
+ * License: See LICENSE file
+ * Copyright (c) 2026 BrainZag
+ *
+ * Service worker setup for offline support
+ *
+*/
+
 const CACHE_NAME = 'brainzag-cache';
 const ASSETS_TO_CACHE = [
     '/',
@@ -6,6 +16,7 @@ const ASSETS_TO_CACHE = [
     '/core.js',
     '/site.webmanifest',
     '/GitHub_Invertocat_Black_Clearspace.png',
+    '/favicon.ico',
     '/favicon-16x16.png',
     '/favicon-32x32.png',
     '/apple-touch-icon.png',
