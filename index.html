@@ -690,8 +690,9 @@
     <script src="core.js"></script>
     <script src="game.js"></script>
     <script>
-        // Register service worker for offline support
-        if ('serviceWorker' in navigator) {
+        // Register service worker for offline support (skip on localhost for development)
+        const IS_LOCAL_HOST = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        if ('serviceWorker' in navigator && !IS_LOCAL_HOST) {
             navigator.serviceWorker.register('/sw.js')
                 .then((registration) => {
                     console.log('Service Worker registered');
@@ -706,6 +707,8 @@
                 .catch((error) => {
                     console.log('Service Worker registration failed:', error);
                 });
+        } else if (IS_LOCAL_HOST) {
+            console.log('Service Worker skipped on localhost');
         }
     </script>
 </body>

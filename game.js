@@ -10,7 +10,7 @@
 
 // ------------------ Debug Flag ------------------
 // Debug mode enabled automatically on localhost, disabled on production
-const DEBUG = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+const IS_LOCAL_HOST = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
 // ------------------ Config ------------------
 
@@ -2370,7 +2370,7 @@ placeColorBtn.addEventListener("click", () => {
 // Show or hide debug tools section based on DEBUG flag
 const debugSection = document.getElementById("debugSection");
 if (debugSection) {
-    debugSection.style.display = DEBUG ? "block" : "none";
+    debugSection.style.display = IS_LOCAL_HOST ? "block" : "none";
 }
 
 // ------------------ Debug: History Display ------------------
