@@ -1820,7 +1820,7 @@ function stopGame(autoEnded = false) {
 }
 
 function updateRoundDisplay() {
-    roundDisplay.textContent = `Round: ${rounds} (Infinite)`;
+    roundDisplay.textContent = `Round: ${rounds}`;
 }
 
 
