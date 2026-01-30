@@ -283,6 +283,183 @@ function saveTodayToHistory() {
     saveActivityHistory(history);
 }
 
+// ================== Daily Progress Tracking ==================
+// Stores aggregated daily performance for long term improvement graphs
+// Structure per day: { n, hits, misses, falseAlarms, correctRejections, sumLoad, maxLoad }
+// ~70 bytes per day = ~25KB for 365 days, ~125KB for 5 years
+
+// Load progress history from localStorage
+function loadProgressHistory() {
+    try {
+        const saved = localStorage.getItem("progressHistory");
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch (e) {
+        console.error("Failed to load progress history:", e);
+    }
+    return {};
+}
+
+// Prune progress history to keep only last 5 years
+function pruneProgressHistory(history) {
+    const fiveYearsAgo = new Date();
+    fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
+    const cutoffStr = formatDateLocal(fiveYearsAgo);
+
+    const pruned = {};
+    for (const dateStr in history) {
+        if (dateStr >= cutoffStr) {
+            pruned[dateStr] = history[dateStr];
+        }
+    }
+    return pruned;
+}
+
+// Save progress history to localStorage
+function saveProgressHistory(history) {
+    try {
+        const pruned = pruneProgressHistory(history);
+        localStorage.setItem("progressHistory", JSON.stringify(pruned));
+    } catch (e) {
+        console.error("Failed to save progress history:", e);
+    }
+}
+
+// Update today's progress with a single trial result
+// Called after each trial response so partial sessions are captured
+// trialData: { n, wasMatch, userClicked, currentLoad }
+function updateDailyProgress(trialData) {
+    const today = formatDateLocal(new Date());
+    const history = loadProgressHistory();
+
+    // Initialize today's entry if needed
+    if (!history[today]) {
+        history[today] = {
+            n: trialData.n,
+            hits: 0,              // clicked AND was match
+            misses: 0,            // didn't click BUT was match
+            falseAlarms: 0,       // clicked BUT wasn't match
+            correctRejections: 0, // didn't click AND wasn't match
+            sumLoad: 0,
+            maxLoad: 0
+        };
+    }
+
+    const entry = history[today];
+
+    // Categorize the trial outcome
+    if (trialData.wasMatch && trialData.userClicked) {
+        entry.hits++;
+    } else if (trialData.wasMatch && !trialData.userClicked) {
+        entry.misses++;
+    } else if (!trialData.wasMatch && trialData.userClicked) {
+        entry.falseAlarms++;
+    } else {
+        entry.correctRejections++;
+    }
+
+    entry.sumLoad += trialData.currentLoad;
+    entry.maxLoad = Math.max(entry.maxLoad, trialData.currentLoad);
+    entry.n = Math.max(entry.n, trialData.n);
+
+    saveProgressHistory(history);
+}
+
+// Compute d-prime from hit rate and false alarm rate
+// Uses z-score approximation, caps extreme values to avoid infinity
+function computeDPrime(hitRate, faRate) {
+    // Cap rates to avoid infinite z-scores
+    const cappedHitRate = Math.max(0.01, Math.min(0.99, hitRate));
+    const cappedFaRate = Math.max(0.01, Math.min(0.99, faRate));
+
+    // Approximate inverse normal CDF (Hastings approximation)
+    function invNorm(p) {
+        const a1 = -3.969683028665376e1;
+        const a2 = 2.209460984245205e2;
+        const a3 = -2.759285104469687e2;
+        const a4 = 1.383577518672690e2;
+        const a5 = -3.066479806614716e1;
+        const a6 = 2.506628277459239e0;
+        const b1 = -5.447609879822406e1;
+        const b2 = 1.615858368580409e2;
+        const b3 = -1.556989798598866e2;
+        const b4 = 6.680131188771972e1;
+        const b5 = -1.328068155288572e1;
+        const c1 = -7.784894002430293e-3;
+        const c2 = -3.223964580411365e-1;
+        const c3 = -2.400758277161838e0;
+        const c4 = -2.549732539343734e0;
+        const c5 = 4.374664141464968e0;
+        const c6 = 2.938163982698783e0;
+        const d1 = 7.784695709041462e-3;
+        const d2 = 3.224671290700398e-1;
+        const d3 = 2.445134137142996e0;
+        const d4 = 3.754408661907416e0;
+        const pLow = 0.02425;
+        const pHigh = 1 - pLow;
+
+        let q, r;
+        if (p < pLow) {
+            q = Math.sqrt(-2 * Math.log(p));
+            return (((((c1*q+c2)*q+c3)*q+c4)*q+c5)*q+c6) / ((((d1*q+d2)*q+d3)*q+d4)*q+1);
+        } else if (p <= pHigh) {
+            q = p - 0.5;
+            r = q * q;
+            return (((((a1*r+a2)*r+a3)*r+a4)*r+a5)*r+a6)*q / (((((b1*r+b2)*r+b3)*r+b4)*r+b5)*r+1);
+        } else {
+            q = Math.sqrt(-2 * Math.log(1 - p));
+            return -(((((c1*q+c2)*q+c3)*q+c4)*q+c5)*q+c6) / ((((d1*q+d2)*q+d3)*q+d4)*q+1);
+        }
+    }
+
+    return invNorm(cappedHitRate) - invNorm(cappedFaRate);
+}
+
+// Get computed stats for a day (for display/graphing)
+function getDailyStats(dateStr) {
+    const history = loadProgressHistory();
+    const entry = history[dateStr];
+    if (!entry) return null;
+
+    const trials = entry.hits + entry.misses + entry.falseAlarms + entry.correctRejections;
+    if (trials === 0) return null;
+
+    const totalMatches = entry.hits + entry.misses;
+    const totalNonMatches = entry.falseAlarms + entry.correctRejections;
+    const hitRate = totalMatches > 0 ? entry.hits / totalMatches : 0;
+    const faRate = totalNonMatches > 0 ? entry.falseAlarms / totalNonMatches : 0;
+
+    return {
+        date: dateStr,
+        n: entry.n,
+        trials: trials,
+        accuracy: (entry.hits + entry.correctRejections) / trials,
+        hitRate: hitRate,
+        faRate: faRate,
+        dPrime: totalMatches > 0 && totalNonMatches > 0 ? computeDPrime(hitRate, faRate) : null,
+        avgLoad: entry.sumLoad / trials,
+        maxLoad: entry.maxLoad
+    };
+}
+
+// Get all daily stats for graphing (returns array sorted by date)
+function getAllDailyStats() {
+    const history = loadProgressHistory();
+    const stats = [];
+
+    for (const dateStr in history) {
+        const dayStats = getDailyStats(dateStr);
+        if (dayStats) {
+            stats.push(dayStats);
+        }
+    }
+
+    // Sort by date ascending
+    stats.sort((a, b) => a.date.localeCompare(b.date));
+    return stats;
+}
+
 // Render the activity heatmap (3 months, Monday start, 2 weeks ahead)
 function renderActivityHeatmap() {
     const container = document.getElementById("activityHeatmap");
@@ -1273,6 +1450,14 @@ function nextStimulus() {
         const reactionTime = reactionTimer.recordNonResponse();
         const result = adaptiveGame.onUserResponse(false, reactionTime);
 
+        // Update daily progress tracking
+        updateDailyProgress({
+            n: adaptiveGame.getCurrentN(),
+            wasMatch: result.wasMatch,
+            userClicked: false,
+            currentLoad: adaptiveGame.currentTile ? adaptiveGame.currentTile.currentLoad : 0
+        });
+
         // Update previous trial outcome for graph
         if (baselineHistory.length > 0) {
             // The previous trial's outcome needs to be updated
@@ -1548,6 +1733,14 @@ function handleMatch() {
     if (adaptiveGame) {
         const reactionTime = reactionTimer.recordResponse();
         const result = adaptiveGame.onUserResponse(true, reactionTime);
+
+        // Update daily progress tracking
+        updateDailyProgress({
+            n: adaptiveGame.getCurrentN(),
+            wasMatch: result.wasMatch,
+            userClicked: true,
+            currentLoad: adaptiveGame.currentTile ? adaptiveGame.currentTile.currentLoad : 0
+        });
 
         // Update trial outcome for graph
         if (baselineHistory.length > 0) {
