@@ -312,8 +312,9 @@
         }
 
         .bg-cell.deactivated {
-            background: transparent;
+            background: #c3b9b9;
             pointer-events: none;
+            opacity: 0.2;
         }
 
         .bg-cell.squish-right {
@@ -377,6 +378,11 @@
             transform: scaleX(0.92) scaleY(0.92);
             transform-origin: top right;
             transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .cell.deactivated {
+            background: transparent !important;
+            pointer-events: none;
         }
 
         #results {
@@ -638,6 +644,8 @@
         <button id="showGraphBtn" style="font-size: 12px; padding: 5px 10px;">Show Graph</button>
         <button id="testFocusModeBtn" style="font-size: 12px; padding: 5px 10px;">Test Focus Mode</button>
         <button id="testUnlockBtn" style="font-size: 12px; padding: 5px 10px;">Test Unlock</button>
+        <button id="changeLayoutBtn" style="font-size: 12px; padding: 5px 10px;">Change Layout</button>
+        <button id="placeColorBtn" style="font-size: 12px; padding: 5px 10px;">Place Color</button>
 
         <div id="historyContainer" style="display: none; margin-top: 15px; padding: 12px; background: #f5f5f5; border-radius: 8px; max-width: 700px; margin-left: auto; margin-right: auto;">
             <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 13px; color: #333;">Last 10 Trials</h3>

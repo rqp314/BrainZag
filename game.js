@@ -1058,18 +1058,54 @@ function createGrid() {
     grid.appendChild(overlayGrid);
 }
 
+// Check if deactivated cells form a straight line of 3 (horizontal or vertical)
+function hasThreeInLine(cells) {
+    if (cells.length < 3) return false;
+
+    const cellSet = new Set(cells);
+
+    // Horizontal lines: rows 0, 1, 2
+    const rows = [[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+    // Vertical lines: columns 0, 1, 2
+    const cols = [[0, 3, 6], [1, 4, 7], [2, 5, 8]];
+
+    const lines = [...rows, ...cols];
+
+    for (const line of lines) {
+        if (line.every(idx => cellSet.has(idx))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Select 0-3 random cells to deactivate for visual variety
 function selectDeactivatedCells() {
     const numToDeactivate = Math.floor(Math.random() * 4); // 0, 1, 2, or 3
     const allIndices = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
-    // Shuffle and pick first N
-    for (let i = allIndices.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [allIndices[i], allIndices[j]] = [allIndices[j], allIndices[i]];
+    let attempts = 0;
+    const maxAttempts = 20;
+
+    while (attempts < maxAttempts) {
+        // Shuffle and pick first N
+        for (let i = allIndices.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [allIndices[i], allIndices[j]] = [allIndices[j], allIndices[i]];
+        }
+
+        const selected = allIndices.slice(0, numToDeactivate);
+
+        // Accept if no 3 in a line constraint violated
+        if (!hasThreeInLine(selected)) {
+            return selected;
+        }
+
+        attempts++;
     }
 
-    return allIndices.slice(0, numToDeactivate);
+    // Fallback: return empty (no deactivated cells) if we cant find valid config
+    return [];
 }
 
 // Apply deactivated cells visually (make them invisible)
@@ -2281,6 +2317,55 @@ function loadStatsVisibility() {
 loadStatsVisibility();
 
 toggleStatsBtn.addEventListener("click", toggleStatsDisplay);
+
+// Change Layout debug button (triggers a new grid layout)
+const changeLayoutBtn = document.getElementById("changeLayoutBtn");
+changeLayoutBtn.addEventListener("click", () => {
+    deactivatedCells = selectDeactivatedCells();
+    applyDeactivatedCells();
+    console.log(`Debug: Changed layout, ${deactivatedCells.length} cells hidden [${deactivatedCells.join(', ') || 'none'}]`);
+});
+
+// Place Color debug button (places one random color in one random available cell)
+const placeColorBtn = document.getElementById("placeColorBtn");
+let debugPlacedCell = null;
+
+placeColorBtn.addEventListener("click", () => {
+    // Clear previously placed cell
+    if (debugPlacedCell) {
+        debugPlacedCell.style.background = "transparent";
+        debugPlacedCell.style.outline = "none";
+    }
+
+    const cells = getPlayableCells();
+    // Filter out deactivated cells
+    const overlayGrid = document.getElementById("overlay-grid");
+    const availableCells = cells.filter((cell) => {
+        const actualIndex = Array.from(overlayGrid.children).indexOf(cell);
+        return !deactivatedCells.includes(actualIndex);
+    });
+
+    if (availableCells.length === 0) {
+        console.log("Debug: No available cells to place color");
+        debugPlacedCell = null;
+        return;
+    }
+
+    // Pick a random available cell
+    const randomCellIndex = Math.floor(Math.random() * availableCells.length);
+    const randomCell = availableCells[randomCellIndex];
+
+    // Pick a random color
+    const randomColorIndex = Math.floor(Math.random() * COLORS.length);
+    const randomColor = COLORS[randomColorIndex];
+
+    // Place the color
+    randomCell.style.background = randomColor.color;
+    randomCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
+    debugPlacedCell = randomCell;
+
+    console.log(`Debug: Placed ${randomColor.name} (${randomColor.color}) in cell`);
+});
 
 // Show or hide debug tools section based on DEBUG flag
 const debugSection = document.getElementById("debugSection");
