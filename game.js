@@ -107,8 +107,8 @@ const AWAY_THRESHOLD = 5 * 60 * 1000; // 5 minutes in ms
 const WARMUP_DURATION = 1 * 60 * 1000; // 1 minute warmup before cell hiding starts
 const LAYOUT_DURATION = 2 * 60 * 1000; // 2 minutes per layout (based on play time)
 
-// Adaptive N-Back System
-let adaptiveGame = null;
+// N-Back Engine
+let nbackEngine = null;
 let reactionTimer = new ReactionTimer(); // track reaction times
 
 // Debug: Trial history tracking
@@ -127,16 +127,16 @@ let focusModeTransitionId = null; // animation frame ID for smooth transition
 const FOCUS_MODE_DELAY = 10000 // 60 seconds before focus mode kicks in
 const FOCUS_MODE_TRANSITION_DURATION = 30000; // 30 seconds to fully fade in (like night shift)
 
-// Load adaptive game state from localStorage
-function loadAdaptiveGameState() {
+// Load nback engine state from localStorage (trainer state only, not trial history)
+function loadNBackEngineState() {
     try {
-        const savedState = localStorage.getItem('adaptiveGameState');
+        const savedState = localStorage.getItem('nbackEngineState');
         if (!savedState) return null;
 
         const state = JSON.parse(savedState);
 
-        // Recreate the adaptive game from saved state
-        const game = new AdaptiveNBackGame({
+        // Recreate the nback engine from saved state
+        const game = new NBackEngine({
             startN: state.currentN,
             colors: COLORS
         });
@@ -253,15 +253,15 @@ function formatDateLocal(date) {
     return `${year}-${month}-${day}`;
 }
 
-// Load activity history from localStorage
-function loadActivityHistory() {
+// Load heatmap history from localStorage
+function loadHeatmapHistory() {
     try {
-        const saved = localStorage.getItem("activityHistory");
+        const saved = localStorage.getItem("heatmapHistory");
         if (saved) {
             return JSON.parse(saved);
         }
     } catch (e) {
-        console.error("Failed to load activity history:", e);
+        console.error("Failed to load heatmap history:", e);
     }
     return {};
 }
@@ -271,16 +271,16 @@ function saveActivityHistory(history) {
     try {
         localStorage.setItem("activityHistory", JSON.stringify(history));
     } catch (e) {
-        console.error("Failed to save activity history:", e);
+        console.error("Failed to save heatmap history:", e);
     }
 }
 
 // Save today's activity to history
 function saveTodayToHistory() {
     const today = formatDateLocal(new Date());
-    const history = loadActivityHistory();
+    const history = loadHeatmapHistory();
     history[today] = elapsedSeconds;
-    saveActivityHistory(history);
+    saveHeatmapHistory(history);
 }
 
 // ================== Daily Progress Tracking ==================
@@ -402,14 +402,14 @@ function computeDPrime(hitRate, faRate) {
         let q, r;
         if (p < pLow) {
             q = Math.sqrt(-2 * Math.log(p));
-            return (((((c1*q+c2)*q+c3)*q+c4)*q+c5)*q+c6) / ((((d1*q+d2)*q+d3)*q+d4)*q+1);
+            return (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
         } else if (p <= pHigh) {
             q = p - 0.5;
             r = q * q;
-            return (((((a1*r+a2)*r+a3)*r+a4)*r+a5)*r+a6)*q / (((((b1*r+b2)*r+b3)*r+b4)*r+b5)*r+1);
+            return (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1);
         } else {
             q = Math.sqrt(-2 * Math.log(1 - p));
-            return -(((((c1*q+c2)*q+c3)*q+c4)*q+c5)*q+c6) / ((((d1*q+d2)*q+d3)*q+d4)*q+1);
+            return -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
         }
     }
 
@@ -465,7 +465,7 @@ function renderActivityHeatmap() {
     const container = document.getElementById("activityHeatmap");
     if (!container) return;
 
-    const history = loadActivityHistory();
+    const history = loadHeatmapHistory();
     const today = new Date();
     const todayStr = formatDateLocal(today);
 
@@ -585,9 +585,9 @@ function loadDailyTimer() {
     } else {
         // Save previous day's data to history before resetting
         if (savedDate && !isNaN(savedSeconds) && savedSeconds > 0) {
-            const history = loadActivityHistory();
+            const history = loadHeatmapHistory();
             history[savedDate] = savedSeconds;
-            saveActivityHistory(history);
+            saveHeatmapHistory(history);
         }
 
         elapsedSeconds = 0;
@@ -1191,17 +1191,17 @@ function setupNBackButtons() {
                 stopGame(false);
             }
 
-            // Reset adaptive game to use new N level
-            adaptiveGame = null;
+            // Reset nback engine to use new N level
+            nbackEngine = null;
 
-            // Clear saved adaptive game state since N changed
-            localStorage.removeItem("adaptiveGameState");
+            // Clear saved nback engine state since N changed
+            localStorage.removeItem("nbackEngineState");
 
             // Update button appearance
             updateNBackButtons();
 
             // Update stats display to reflect reset
-            updateAdaptiveStatsDisplay();
+            updateStatsDisplay();
 
             console.log(`N-back level changed to ${newN}-back. Game reset.`);
         });
@@ -1358,9 +1358,9 @@ function activateCellHiding() {
     applyDeactivatedCells();
     layoutPlayTimeStart = getTotalPlayTime(); // use play time, not real time
 
-    // Tell the adaptive game which positions to exclude
-    if (adaptiveGame) {
-        adaptiveGame.setExcludedPositions(getExcludedPositions());
+    // Tell the nback engine which positions to exclude
+    if (nbackEngine) {
+        nbackEngine.setExcludedPositions(getExcludedPositions());
     }
 
     console.log(`Cell hiding activated: ${deactivatedCells.length} cells hidden for ${Math.round(LAYOUT_DURATION / 1000)}s of play time`);
@@ -1372,9 +1372,9 @@ function deactivateCellHiding() {
     deactivatedCells = [];
     applyDeactivatedCells();
 
-    // Tell the adaptive game no positions are excluded
-    if (adaptiveGame) {
-        adaptiveGame.setExcludedPositions([]);
+    // Tell the nback engine no positions are excluded
+    if (nbackEngine) {
+        nbackEngine.setExcludedPositions([]);
     }
 }
 
@@ -1420,8 +1420,8 @@ if (loadedGame) {
 setupNBackButtons();
 updateNBackButtons();
 
-// Initialize adaptive stats display
-updateAdaptiveStatsDisplay();
+// Initialize stats display
+updateStatsDisplay();
 
 // Initialize progress bar with current value on page load
 const currentProgress = elapsedSeconds % CHUNK_SECONDS;
@@ -1481,8 +1481,8 @@ function nextStimulus() {
     clearGrid();
     resetAllCells(); // thorough reset for mobile rendering glitches
 
-    // Use adaptive system to generate next tile
-    const tile = adaptiveGame.generateNextTile();
+    // Use nback engine to generate next tile
+    const tile = nbackEngine.generateNextTile();
 
     // Convert color name to hex
     const color = COLOR_NAME_TO_HEX[tile.color];
@@ -1491,7 +1491,7 @@ function nextStimulus() {
     const cellIndex = tile.position.row * 3 + tile.position.col;
 
     // Store currentTile for later response handling
-    adaptiveGame.currentTile = tile;
+    nbackEngine.currentTile = tile;
 
     // CRITICAL: Update history.positions immediately for spatial continuity
     // This ensures the next tile generation can use this position for adjacency constraints
@@ -1559,7 +1559,7 @@ function nextStimulus() {
     }, DISPLAY_TIME / speedMultiplier);
 
     updateRoundDisplay();
-    updateAdaptiveStatsDisplay();
+    updateStatsDisplay();
 
     // Live update history if it's showing
     if (historyShowing) {
@@ -1567,7 +1567,7 @@ function nextStimulus() {
     }
 
     // Autopilot: automatically click when there's a match
-    if (autopilotEnabled && adaptiveGame && index > n) {
+    if (autopilotEnabled && nbackEngine && index > n) {
         const isMatch = adaptiveGame.isActualMatch();
         if (isMatch) {
             // Wait a short random time (100-300ms) to simulate human reaction
@@ -1581,8 +1581,8 @@ function nextStimulus() {
     }
 
     // Record current load and outcome for graph
-    if (adaptiveGame) {
-        const stats = adaptiveGame.getStats();
+    if (nbackEngine) {
+        const stats = nbackEngine.getStats();
         baselineHistory.push({
             trial: index,
             baseline: stats.workingMemory.currentLoad, // Current unique colors in memory
@@ -1751,7 +1751,7 @@ function handleMatch() {
             };
         }
 
-        updateAdaptiveStatsDisplay();
+        updateStatsDisplay();
 
         // Live update graph if it's showing
         if (graphShowing) {
@@ -1779,10 +1779,10 @@ function startGame() {
     detailedTrialHistory = []; // reset debug history
     baselineHistory = []; // reset graph data with outcomes
 
-    // Initialize or continue adaptive system
-    if (!adaptiveGame) {
-        // Create new adaptive game if none exists
-        adaptiveGame = new AdaptiveNBackGame({
+    // Initialize or continue nback engine
+    if (!nbackEngine) {
+        // Create new nback engine if none exists
+        nbackEngine = new NBackEngine({
             startN: n,
             colors: COLORS
         });
@@ -1808,7 +1808,7 @@ function startGame() {
             if (layoutPlayTime < LAYOUT_DURATION) {
                 // Layout still valid, restore and continue with same layout
                 applyDeactivatedCells();
-                adaptiveGame.setExcludedPositions(getExcludedPositions());
+                nbackEngine.setExcludedPositions(getExcludedPositions());
                 const remaining = Math.round((LAYOUT_DURATION - layoutPlayTime) / 1000);
                 console.log(`Restoring layout (${deactivatedCells.length} cells hidden, ${remaining}s play time remaining)`);
             } else {
@@ -1816,7 +1816,7 @@ function startGame() {
                 deactivatedCells = selectDeactivatedCells();
                 applyDeactivatedCells();
                 layoutPlayTimeStart = accumulatedPlayTime;
-                adaptiveGame.setExcludedPositions(getExcludedPositions());
+                nbackEngine.setExcludedPositions(getExcludedPositions());
                 saveCellHidingState();
                 console.log(`Layout expired, new layout: ${deactivatedCells.length} cells hidden for ${Math.round(LAYOUT_DURATION / 1000)}s play time`);
             }
@@ -1928,8 +1928,8 @@ function stopGame(autoEnded = false) {
     stopFocusMode();
 
     // End session tracking
-    if (adaptiveGame) {
-        adaptiveGame.endSession();
+    if (nbackEngine) {
+        nbackEngine.endSession();
     }
 
     isRunning = false;
@@ -2066,8 +2066,8 @@ function showResults() {
 
     // Get memory load info (session average)
     let memoryLoadHtml = '';
-    if (adaptiveGame && baselineHistory.length > 0) {
-        const stats = adaptiveGame.getStats();
+    if (nbackEngine && baselineHistory.length > 0) {
+        const stats = nbackEngine.getStats();
         const maxUniqueColors = stats.workingMemory.maxUniqueColors;
 
         // Calculate average load across the session
@@ -2141,20 +2141,20 @@ function showResults() {
 }
 
 
-// ------------------ Adaptive Stats Display ------------------
+// ------------------ Stats Display ------------------
 
-function updateAdaptiveStatsDisplay() {
+function updateStatsDisplay() {
     const statsEl = document.getElementById("adaptiveStats");
     if (!statsEl) {
         return;
     }
 
-    if (!adaptiveGame) {
+    if (!nbackEngine) {
         statsEl.textContent = '';
         return;
     }
 
-    const stats = adaptiveGame.getStats();
+    const stats = nbackEngine.getStats();
     const accuracyPercent = Math.round(stats.accuracy * 100);
     const confidencePercent = Math.round(stats.confidence * 100);
 
@@ -2291,7 +2291,7 @@ function updateAdaptiveStatsDisplay() {
     statsEl.innerHTML = display;
 
     // Save to localStorage after updating display
-    saveAdaptiveGameState();
+    saveNBackEngineState();
 }
 
 // ------------------ Color Preview Debug ------------------

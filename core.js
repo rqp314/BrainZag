@@ -1058,10 +1058,10 @@ class WorkingMemoryTrainer {
 }
 
 // ============================================================================
-// ADAPTIVE N-BACK GAME
+// N-BACK ENGINE
 // ============================================================================
 
-class AdaptiveNBackGame {
+class NBackEngine {
   constructor(options = {}) {
     this.currentN = options.startN || 2;
     this.colors = options.colors || [];
@@ -1172,7 +1172,7 @@ class AdaptiveNBackGame {
     this.trainer.reset();
   }
 
-  // Compatibility methods for localStorage
+  // Serialize trainer state for localStorage (trial history is managed separately in game.js)
   toJSON() {
     return {
       currentN: this.currentN,
@@ -1190,7 +1190,7 @@ class AdaptiveNBackGame {
 // Export for use in other files
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    AdaptiveNBackGame,
+    NBackEngine,
     WorkingMemoryTrainer,
     LowPassFilter,
     SessionTracker,
