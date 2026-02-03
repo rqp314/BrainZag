@@ -1070,10 +1070,7 @@ class NBackEngine {
     // Create the working memory trainer
     this.trainer = new WorkingMemoryTrainer(this.currentN, this.colors);
 
-    // For compatibility with existing code
-    this.history = { colors: [], positions: [], timestamps: [] };
     this.currentTile = null;
-    this.allTrials = [];
 
     // Start session tracking
     this.sessionTracker.startSession();
@@ -1081,48 +1078,16 @@ class NBackEngine {
 
   generateNextTile() {
     this.currentTile = this.trainer.generateNextTrial();
-    // NOTE: History is updated in game.js (before calling isActualMatch)
-    // to ensure correct sequencing for match detection
     return this.currentTile;
   }
 
-  // method to check if current tile is an actual match based on sequence
-  // IMPORTANT: This should be called AFTER the current color is added to history
-  isActualMatch() {
-    if (!this.currentTile || this.history.colors.length === 0) return false;
-
-    // The current color is at the end of history
-    // Compare it with the color from N positions back
-    // For n=2: compare history[length-1] with history[length-1-2] = history[length-3]
-    const currentColor = this.history.colors[this.history.colors.length - 1];
-    const nBackIndex = this.history.colors.length - 1 - this.currentN;
-
-    return nBackIndex >= 0 && currentColor === this.history.colors[nBackIndex];
-  }
-
-  onUserResponse(userClicked, reactionTime) {
+  // Record user response (wasMatch is now computed in game.js using trialHistory)
+  onUserResponse(userClicked, wasMatch, reactionTime) {
     if (!this.currentTile) {
       throw new Error('No current tile');
     }
 
-    // check actual match based on sequence
-    const actualWasMatch = this.isActualMatch();
-
-    const result = this.trainer.recordResponse(userClicked, actualWasMatch, reactionTime);
-
-    // Store trial for compatibility
-    this.allTrials.push({
-      n: this.currentN,
-      timestamp: Date.now(),
-      correct: result.correct,
-      userClicked,
-      wasMatch: actualWasMatch, // use actual match, not intended
-      reactionTime,
-      isValid: result.isValid,
-      currentLoad: this.currentTile.currentLoad,
-      targetLoad: this.currentTile.targetLoad
-    });
-
+    const result = this.trainer.recordResponse(userClicked, wasMatch, reactionTime);
     return result;
   }
 
@@ -1166,8 +1131,6 @@ class NBackEngine {
   }
 
   reset() {
-    this.history = { colors: [], positions: [], timestamps: [] };
-    this.allTrials = [];
     this.currentTile = null;
     this.trainer.reset();
   }
@@ -1176,8 +1139,6 @@ class NBackEngine {
   toJSON() {
     return {
       currentN: this.currentN,
-      history: this.history,
-      allTrials: this.allTrials,
       trainerState: {
         trialNumber: this.trainer.trialNumber,
         currentUniqueColors: this.trainer.colorController.currentUniqueColors,

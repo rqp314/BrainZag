@@ -39,7 +39,7 @@ const TIMING_JITTER = 50;  // ±50ms random variation in timing
 
 // Get randomized interval with jitter
 function getRandomizedInterval() {
-    return INTERVAL_TIME; // TODO
+    return INTERVAL_TIME; // TODO still required ?
     const jitter = (Math.random() * 2 - 1) * TIMING_JITTER; // random between -TIMING_JITTER and +TIMING_JITTER
     return INTERVAL_TIME + jitter;
 }
@@ -79,7 +79,6 @@ class ReactionTimer {
 // ------------------ State ------------------
 
 let n = 1;
-let history = [];
 let index = 0;
 let intervalId = null;
 let isRunning = false;
@@ -110,6 +109,17 @@ const LAYOUT_DURATION = 2 * 60 * 1000; // 2 minutes per layout (based on play ti
 // N-Back Engine
 let nbackEngine = null;
 let reactionTimer = new ReactionTimer(); // track reaction times
+
+// Trial history: Map<roundId, Trial[]> - each round has its own array of trials
+const MAX_ROUNDS_STORED = 50; // keep last 50 rounds
+let trialHistory = new Map();
+let currentRoundId = 0;
+
+// Performance tracking: Map<dateStr, PerformanceData> - daily aggregates
+// includes heatmap (playTime) and progress (hits, misses, etc.)
+const MAX_DAYS_STORED = 3650; // ~10 years
+let performanceHistory = new Map();
+let pendingPerformance = null; // in memory until stopGame saves it
 
 // Debug: Trial history tracking
 let detailedTrialHistory = []; // stores last trials with full details
@@ -148,51 +158,148 @@ function loadNBackEngineState() {
             game.trainer.performanceTracker.accuracy = state.trainerState.accuracy || 0.75;
         }
 
-        // Restore history
-        if (state.history) {
-            game.history = state.history;
-        }
-
-        // Restore trials
-        if (state.allTrials) {
-            game.allTrials = state.allTrials;
-        }
-
         return game;
     } catch (e) {
-        console.error('Failed to load adaptive game state:', e);
+        console.error('Failed to load nback engine state:', e);
         return null;
     }
 }
 
-// Save adaptive game state to localStorage
-function saveAdaptiveGameState() {
-    if (!adaptiveGame) return;
+// Save nback engine state to localStorage (trainer state only)
+function saveNBackEngineState() {
+    if (!nbackEngine) return;
 
     try {
-        const state = adaptiveGame.toJSON();
-        localStorage.setItem('adaptiveGameState', JSON.stringify(state));
+        const state = nbackEngine.toJSON();
+        localStorage.setItem('nbackEngineState', JSON.stringify(state));
     } catch (e) {
-        console.error('Failed to save adaptive game state:', e);
+        console.error('Failed to save nback engine state:', e);
     }
 }
 
-// Get localStorage size in human readable format
-function getLocalStorageSize() {
+// Prune Map to keep only most recent entries (Maps preserve insertion order)
+function pruneMap(map, maxSize) {
+    let deleteCount = map.size - maxSize;
+    for (const key of map.keys()) {
+        if (deleteCount-- <= 0) break;
+        map.delete(key);
+    }
+}
+
+// ================== Trial History (Map<roundId, Trial[]>) ==================
+
+function loadTrialHistory() {
+    try {
+        const saved = localStorage.getItem('trialHistory');
+        if (saved) {
+            const data = JSON.parse(saved);
+            trialHistory = new Map(data.rounds || []);
+            currentRoundId = data.currentRoundId || 0;
+        }
+    } catch (e) {
+        console.error('Failed to load trial history:', e);
+        trialHistory = new Map();
+        currentRoundId = 0;
+    }
+}
+
+function saveTrialHistory() {
+    try {
+        pruneMap(trialHistory, MAX_ROUNDS_STORED);
+        localStorage.setItem('trialHistory', JSON.stringify({
+            rounds: [...trialHistory.entries()],
+            currentRoundId: currentRoundId
+        }));
+    } catch (e) {
+        console.error('Failed to save trial history:', e);
+    }
+}
+
+// Get trials from the current round
+function getCurrentRoundTrials() {
+    return trialHistory.get(currentRoundId) || [];
+}
+
+// Check if current tile matches the one N positions back (within current round only)
+function isActualMatchInRound(currentColor, nBack) {
+    const roundTrials = getCurrentRoundTrials();
+    const nBackIndex = roundTrials.length - 1 - nBack;
+    if (nBackIndex < 0) return false;
+    return currentColor === roundTrials[nBackIndex].color;
+}
+
+// Add a new trial to history (called when tile is shown)
+function addTrialToHistory(tile, nBack) {
+    const trial = {
+        color: tile.color,
+        position: tile.position,
+        timestamp: Date.now(),
+        n: nBack,
+        currentLoad: tile.currentLoad,
+        targetLoad: tile.targetLoad,
+        wasMatch: null,
+        userClicked: null,
+        correct: null,
+        reactionTime: null
+    };
+
+    if (!trialHistory.has(currentRoundId)) {
+        trialHistory.set(currentRoundId, []);
+    }
+    trialHistory.get(currentRoundId).push(trial);
+
+    return trial;
+}
+
+// Update the last trial in current round with response data
+function updateLastTrialWithResponse(wasMatch, userClicked, correct, reactionTime) {
+    const roundTrials = getCurrentRoundTrials();
+    if (roundTrials.length === 0) return;
+
+    const lastTrial = roundTrials[roundTrials.length - 1];
+    lastTrial.wasMatch = wasMatch;
+    lastTrial.userClicked = userClicked;
+    lastTrial.correct = correct;
+    lastTrial.reactionTime = reactionTime;
+}
+
+// Get recent trials from current round for error monitoring
+function getRecentTrialsInRound(count) {
+    return getCurrentRoundTrials().slice(-count);
+}
+
+// Get last trial info for response recording
+function getLastTrialInfo() {
+    const roundTrials = getCurrentRoundTrials();
+    const lastTrial = roundTrials.length > 0 ? roundTrials[roundTrials.length - 1] : null;
+    const wasMatch = lastTrial ? isActualMatchInRound(lastTrial.color, n) : false;
+    return { lastTrial, wasMatch };
+}
+
+// Format bytes to human readable
+function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+// Get localStorage size and top biggest entries
+function getLocalStorageInfo() {
+    const entries = [];
     let total = 0;
-    for (let key in localStorage) {
+
+    for (const key in localStorage) {
         if (localStorage.hasOwnProperty(key)) {
-            total += key.length + localStorage[key].length;
+            const size = key.length + localStorage[key].length;
+            total += size;
+            entries.push({ key, size });
         }
     }
-    // Convert to human readable
-    if (total < 1024) {
-        return `${total} B`;
-    } else if (total < 1024 * 1024) {
-        return `${(total / 1024).toFixed(1)} KB`;
-    } else {
-        return `${(total / (1024 * 1024)).toFixed(2)} MB`;
-    }
+
+    entries.sort((a, b) => b.size - a.size);
+    const top = entries.slice(0, 5).map(e => `${e.key}: ${formatBytes(e.size)}`);
+
+    return { total: formatBytes(total), top };
 }
 
 // Save cell hiding state to localStorage
@@ -241,7 +348,9 @@ let lastCompletedChunk = 0; // track the last completed chunk to detect resets
 let isAnimatingBar = false; // track if progress bar is animating (during stopGame)
 let segmentElements = []; // DOM elements for segmented progress bars during gameplay
 
-// ------------------ Activity Heatmap ------------------
+// ================== Performance History (Map<dateStr, PerformanceData>) ==================
+// heatmap + progress: { n, hits, misses, falseAlarms, correctRejections, sumLoad, maxLoad, playTime }
+// ~100 bytes per day = ~365KB for 10 years
 
 const HEATMAP_TARGET_SECONDS = 1200; // 20 minutes = full green
 
@@ -253,117 +362,92 @@ function formatDateLocal(date) {
     return `${year}-${month}-${day}`;
 }
 
-// Load heatmap history from localStorage
-function loadHeatmapHistory() {
+// Load performance history from localStorage
+function loadPerformanceHistory() {
     try {
-        const saved = localStorage.getItem("heatmapHistory");
+        const saved = localStorage.getItem("performanceHistory");
         if (saved) {
-            return JSON.parse(saved);
+            performanceHistory = new Map(JSON.parse(saved));
         }
     } catch (e) {
-        console.error("Failed to load heatmap history:", e);
+        console.error("Failed to load performance history:", e);
+        performanceHistory = new Map();
     }
-    return {};
 }
 
-// Save activity history to localStorage
-function saveActivityHistory(history) {
+// Save performance history to localStorage (~10 years)
+function savePerformanceHistory() {
     try {
-        localStorage.setItem("activityHistory", JSON.stringify(history));
+        pruneMap(performanceHistory, MAX_DAYS_STORED);
+        localStorage.setItem("performanceHistory", JSON.stringify([...performanceHistory.entries()]));
     } catch (e) {
-        console.error("Failed to save heatmap history:", e);
+        console.error("Failed to save performance history:", e);
     }
 }
 
-// Save today's activity to history
-function saveTodayToHistory() {
+// Initialize pendingPerformance from Map (load today's existing data if any)
+function initPendingPerformance() {
     const today = formatDateLocal(new Date());
-    const history = loadHeatmapHistory();
-    history[today] = elapsedSeconds;
-    saveHeatmapHistory(history);
-}
+    const existing = performanceHistory.get(today);
 
-// ================== Daily Progress Tracking ==================
-// Stores aggregated daily performance for long term improvement graphs
-// Structure per day: { n, hits, misses, falseAlarms, correctRejections, sumLoad, maxLoad }
-// ~70 bytes per day = ~25KB for 365 days, ~125KB for 5 years
-
-// Load progress history from localStorage
-function loadProgressHistory() {
-    try {
-        const saved = localStorage.getItem("progressHistory");
-        if (saved) {
-            return JSON.parse(saved);
-        }
-    } catch (e) {
-        console.error("Failed to load progress history:", e);
-    }
-    return {};
-}
-
-// Prune progress history to keep only last 5 years
-function pruneProgressHistory(history) {
-    const fiveYearsAgo = new Date();
-    fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
-    const cutoffStr = formatDateLocal(fiveYearsAgo);
-
-    const pruned = {};
-    for (const dateStr in history) {
-        if (dateStr >= cutoffStr) {
-            pruned[dateStr] = history[dateStr];
-        }
-    }
-    return pruned;
-}
-
-// Save progress history to localStorage
-function saveProgressHistory(history) {
-    try {
-        const pruned = pruneProgressHistory(history);
-        localStorage.setItem("progressHistory", JSON.stringify(pruned));
-    } catch (e) {
-        console.error("Failed to save progress history:", e);
-    }
-}
-
-// Update today's progress with a single trial result
-// Called after each trial response so partial sessions are captured
-// trialData: { n, wasMatch, userClicked, currentLoad }
-function updateDailyProgress(trialData) {
-    const today = formatDateLocal(new Date());
-    const history = loadProgressHistory();
-
-    // Initialize today's entry if needed
-    if (!history[today]) {
-        history[today] = {
-            n: trialData.n,
-            hits: 0,              // clicked AND was match
-            misses: 0,            // didn't click BUT was match
-            falseAlarms: 0,       // clicked BUT wasn't match
-            correctRejections: 0, // didn't click AND wasn't match
+    if (existing) {
+        pendingPerformance = { ...existing };
+    } else {
+        pendingPerformance = {
+            n: 1,
+            hits: 0,
+            misses: 0,
+            falseAlarms: 0,
+            correctRejections: 0,
             sumLoad: 0,
-            maxLoad: 0
+            maxLoad: 0,
+            playTime: 0
         };
     }
+}
 
-    const entry = history[today];
-
-    // Categorize the trial outcome
-    if (trialData.wasMatch && trialData.userClicked) {
-        entry.hits++;
-    } else if (trialData.wasMatch && !trialData.userClicked) {
-        entry.misses++;
-    } else if (!trialData.wasMatch && trialData.userClicked) {
-        entry.falseAlarms++;
-    } else {
-        entry.correctRejections++;
+// Update pendingPerformance in memory (called after each trial, no disk write)
+function updateDailyProgress(trialData) {
+    if (!pendingPerformance) {
+        initPendingPerformance();
     }
 
-    entry.sumLoad += trialData.currentLoad;
-    entry.maxLoad = Math.max(entry.maxLoad, trialData.currentLoad);
-    entry.n = Math.max(entry.n, trialData.n);
+    if (trialData.wasMatch && trialData.userClicked) {
+        pendingPerformance.hits++;
+    } else if (trialData.wasMatch && !trialData.userClicked) {
+        pendingPerformance.misses++;
+    } else if (!trialData.wasMatch && trialData.userClicked) {
+        pendingPerformance.falseAlarms++;
+    } else {
+        pendingPerformance.correctRejections++;
+    }
 
-    saveProgressHistory(history);
+    pendingPerformance.sumLoad += trialData.currentLoad;
+    pendingPerformance.maxLoad = Math.max(pendingPerformance.maxLoad, trialData.currentLoad);
+    pendingPerformance.n = Math.max(pendingPerformance.n, trialData.n);
+}
+
+// Update playTime in pendingPerformance
+function updatePlayTime(seconds) {
+    if (!pendingPerformance) {
+        initPendingPerformance();
+    }
+    pendingPerformance.playTime = seconds;
+}
+
+// Save pendingPerformance to Map and disk (called on game end)
+function savePerformanceToDisk() {
+    if (!pendingPerformance) return;
+
+    const today = formatDateLocal(new Date());
+    performanceHistory.set(today, pendingPerformance);
+    savePerformanceHistory();
+}
+
+// Get playTime for a date (for heatmap rendering)
+function getPlayTime(dateStr) {
+    const data = performanceHistory.get(dateStr);
+    return data ? data.playTime : 0;
 }
 
 // Compute d-prime from hit rate and false alarm rate
@@ -418,8 +502,7 @@ function computeDPrime(hitRate, faRate) {
 
 // Get computed stats for a day (for display/graphing)
 function getDailyStats(dateStr) {
-    const history = loadProgressHistory();
-    const entry = history[dateStr];
+    const entry = performanceHistory.get(dateStr);
     if (!entry) return null;
 
     const trials = entry.hits + entry.misses + entry.falseAlarms + entry.correctRejections;
@@ -439,16 +522,16 @@ function getDailyStats(dateStr) {
         faRate: faRate,
         dPrime: totalMatches > 0 && totalNonMatches > 0 ? computeDPrime(hitRate, faRate) : null,
         avgLoad: entry.sumLoad / trials,
-        maxLoad: entry.maxLoad
+        maxLoad: entry.maxLoad,
+        playTime: entry.playTime
     };
 }
 
 // Get all daily stats for graphing (returns array sorted by date)
 function getAllDailyStats() {
-    const history = loadProgressHistory();
     const stats = [];
 
-    for (const dateStr in history) {
+    for (const [dateStr] of performanceHistory) {
         const dayStats = getDailyStats(dateStr);
         if (dayStats) {
             stats.push(dayStats);
@@ -465,12 +548,8 @@ function renderActivityHeatmap() {
     const container = document.getElementById("activityHeatmap");
     if (!container) return;
 
-    const history = loadHeatmapHistory();
     const today = new Date();
     const todayStr = formatDateLocal(today);
-
-    // Add today's current progress to history for display
-    history[todayStr] = elapsedSeconds;
 
     // Month names (3 letter)
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -486,9 +565,9 @@ function renderActivityHeatmap() {
         });
     }
 
-    // End date is 2 weeks from now
+    // End date is 25 days from now
     const endDate = new Date(today);
-    endDate.setDate(endDate.getDate() + 14);
+    endDate.setDate(endDate.getDate() + 25);
 
     // Fixed 5 weeks per month for uniform display
     const WEEKS_PER_MONTH = 5;
@@ -549,7 +628,8 @@ function renderActivityHeatmap() {
                     continue;
                 }
 
-                const seconds = history[dateStr] || 0;
+                // Use current elapsedSeconds for today, otherwise get from history
+                const seconds = dateStr === todayStr ? elapsedSeconds : getPlayTime(dateStr);
 
                 // Color levels based on playtime thresholds
                 let colorClass = 'heatmap-level-0';
@@ -583,11 +663,13 @@ function loadDailyTimer() {
     if (savedDate === today && !isNaN(savedSeconds)) {
         elapsedSeconds = savedSeconds;
     } else {
-        // Save previous day's data to history before resetting
+        // Update previous day's playTime in memory (will be saved on game end)
         if (savedDate && !isNaN(savedSeconds) && savedSeconds > 0) {
-            const history = loadHeatmapHistory();
-            history[savedDate] = savedSeconds;
-            saveHeatmapHistory(history);
+            const existing = performanceHistory.get(savedDate) || {
+                n: 1, hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0, sumLoad: 0, maxLoad: 0, playTime: 0
+            };
+            existing.playTime = savedSeconds;
+            performanceHistory.set(savedDate, existing);
         }
 
         elapsedSeconds = 0;
@@ -647,7 +729,7 @@ function regenerateMinutePositions() {
 // Save current daily timer
 function saveDailyTimer() {
     localStorage.setItem("dailyPlaySeconds", elapsedSeconds.toString());
-    saveTodayToHistory();
+    updatePlayTime(elapsedSeconds);
 }
 
 // Create segmented progress bar (islands with gaps)
@@ -1399,22 +1481,27 @@ if (savedN) {
     n = 1; // Default to 1-back for first time users
 }
 
-// Load adaptive game state only if it matches current N selection
-const loadedGame = loadAdaptiveGameState();
+// Load nback engine state only if it matches current N selection
+const loadedGame = loadNBackEngineState();
 if (loadedGame) {
     // Verify that loaded game's N matches current selection
     const loadedN = loadedGame.getCurrentN();
     if (loadedN === n) {
-        adaptiveGame = loadedGame;
-        console.log(`Loaded adaptive game state with ${n}-back`);
+        nbackEngine = loadedGame;
+        console.log(`Loaded nback engine state with ${n}-back`);
     } else {
         console.log(`Discarded saved game (was ${loadedN}-back, now ${n}-back)`);
-        localStorage.removeItem('adaptiveGameState');
-        adaptiveGame = null;
+        localStorage.removeItem('nbackEngineState');
+        nbackEngine = null;
     }
 } else {
-    adaptiveGame = null;
+    nbackEngine = null;
 }
+
+// Load trial history and initialize performance tracking
+loadTrialHistory();
+loadPerformanceHistory();
+initPendingPerformance();
 
 // Setup n-back buttons
 setupNBackButtons();
@@ -1445,17 +1532,24 @@ function nextStimulus() {
     }
 
     // Record non-response to previous stimulus (if applicable)
-    if (adaptiveGame && index > 0 && index > n && !roundLocked) {
+    if (nbackEngine && index > 0 && index > n && !roundLocked) {
         // User did not click, so this is a non-response
         const reactionTime = reactionTimer.recordNonResponse();
-        const result = adaptiveGame.onUserResponse(false, reactionTime);
+        const { lastTrial, wasMatch } = getLastTrialInfo();
+        const correct = !wasMatch; // not clicking on non-match is correct
+
+        // Pass wasMatch to onUserResponse (it no longer computes it internally)
+        nbackEngine.onUserResponse(false, wasMatch, reactionTime);
+
+        // Update the trial in trialHistory with response data
+        updateLastTrialWithResponse(wasMatch, false, correct, reactionTime);
 
         // Update daily progress tracking
         updateDailyProgress({
-            n: adaptiveGame.getCurrentN(),
-            wasMatch: result.wasMatch,
+            n: nbackEngine.getCurrentN(),
+            wasMatch: wasMatch,
             userClicked: false,
-            currentLoad: adaptiveGame.currentTile ? adaptiveGame.currentTile.currentLoad : 0
+            currentLoad: lastTrial ? lastTrial.currentLoad : 0
         });
 
         // Update previous trial outcome for graph
@@ -1465,7 +1559,7 @@ function nextStimulus() {
             if (prevEntry && prevEntry.outcome.userClicked === null) {
                 // Only update if user didn't click (outcome not yet set)
                 prevEntry.outcome = {
-                    wasMatch: result.wasMatch,
+                    wasMatch: wasMatch,
                     userClicked: false
                 };
             }
@@ -1493,15 +1587,12 @@ function nextStimulus() {
     // Store currentTile for later response handling
     nbackEngine.currentTile = tile;
 
-    // CRITICAL: Update history.positions immediately for spatial continuity
-    // This ensures the next tile generation can use this position for adjacency constraints
-    // The full history update (including response data) happens in onUserResponse
-    adaptiveGame.history.positions.push(tile.position);
-    adaptiveGame.history.colors.push(tile.color);
-    adaptiveGame.history.timestamps.push(Date.now());
+    // Add trial to history
+    // This tracks all trials across rounds with round boundary detection
+    addTrialToHistory(tile, n);
 
-    // Record trial in detailed history for debug display
-    const actualIsMatch = adaptiveGame.isActualMatch();
+    // Check if this is a match (only considers trials within current round)
+    const actualIsMatch = isActualMatchInRound(tile.color, n);
 
     detailedTrialHistory.push({
         trialNumber: index,
@@ -1532,12 +1623,11 @@ function nextStimulus() {
     currentActiveCell = randomCell;
     coloredCellVisible = true;
 
-    history.push(color);
     index++;
     rounds++;
 
     // Track if this is a target (match) for accuracy calculation
-    if (index > n && history[index - 1] === history[index - 1 - n]) {
+    if (index > n && actualIsMatch) {
         totalTargets++;
     }
 
@@ -1568,8 +1658,7 @@ function nextStimulus() {
 
     // Autopilot: automatically click when there's a match
     if (autopilotEnabled && nbackEngine && index > n) {
-        const isMatch = adaptiveGame.isActualMatch();
-        if (isMatch) {
+        if (actualIsMatch) {
             // Wait a short random time (100-300ms) to simulate human reaction
             const reactionDelay = Math.random() * 200 + 400;
             setTimeout(() => {
@@ -1605,21 +1694,26 @@ function nextStimulus() {
         }
     }
 
-    // In infinite mode, monitor rolling average errors and end if too many mistakes
-    // Use last 10 trials to check for poor performance
-    if (adaptiveGame && rounds >= 10) {
-        const recentTrials = adaptiveGame.allTrials.slice(-10);
+    // Monitor rolling average errors and end if too many mistakes
+    // Use last 10 trials FROM CURRENT ROUND to check for poor performance
+    if (nbackEngine && rounds >= 10) {
+        const recentTrials = getRecentTrialsInRound(10);
+
+        // Only check trials that have been responded to (wasMatch is not null)
+        const respondedTrials = recentTrials.filter(t => t.wasMatch !== null);
 
         // Count actual ERRORS: false positives + missed targets
-        const errors = recentTrials.filter(t => {
+        const errors = respondedTrials.filter(t => {
             const isFalsePositive = t.userClicked && !t.wasMatch;
             const isMissedTarget = !t.userClicked && t.wasMatch;
             return isFalsePositive || isMissedTarget;
         }).length;
 
-        // End game if 5 or more errors in last 10 trials (50%+ error rate)
+        // TODO how does this work once N level increases ?
+
+        // End game if 5 or more errors in last 10 responded trials (50%+ error rate)
         // This works regardless of how many targets there were
-        if (errors >= 5) {
+        if (respondedTrials.length >= 10 && errors >= 5) {
             stopGame(true);
         }
     }
@@ -1724,29 +1818,35 @@ function handleMatch() {
 
     roundLocked = true; // lock for the rest of this round
 
-    const isMatch = history[index - 1] === history[index - 1 - n];
+    const { lastTrial, wasMatch } = getLastTrialInfo();
+    const correct = wasMatch; // clicking on a match is correct
 
-    if (isMatch) correctMatches++;
+    if (wasMatch) correctMatches++;
     else incorrectMatches++;
 
-    // Record response in adaptive system
-    if (adaptiveGame) {
+    // Record response in nback engine
+    if (nbackEngine) {
         const reactionTime = reactionTimer.recordResponse();
-        const result = adaptiveGame.onUserResponse(true, reactionTime);
+
+        // Pass wasMatch to onUserResponse (it no longer computes it internally)
+        nbackEngine.onUserResponse(true, wasMatch, reactionTime);
+
+        // Update the trial in trialHistory with response data
+        updateLastTrialWithResponse(wasMatch, true, correct, reactionTime);
 
         // Update daily progress tracking
         updateDailyProgress({
-            n: adaptiveGame.getCurrentN(),
-            wasMatch: result.wasMatch,
+            n: nbackEngine.getCurrentN(),
+            wasMatch: wasMatch,
             userClicked: true,
-            currentLoad: adaptiveGame.currentTile ? adaptiveGame.currentTile.currentLoad : 0
+            currentLoad: lastTrial ? lastTrial.currentLoad : 0
         });
 
         // Update trial outcome for graph
         if (baselineHistory.length > 0) {
             const currentEntry = baselineHistory[baselineHistory.length - 1];
             currentEntry.outcome = {
-                wasMatch: result.wasMatch,
+                wasMatch: wasMatch,
                 userClicked: true
             };
         }
@@ -1767,7 +1867,6 @@ function startGame() {
     if (isRunning) return;
 
     // Initialize game state
-    history = [];
     index = 0;
     rounds = 0;
     correctMatches = 0;
@@ -1779,6 +1878,9 @@ function startGame() {
     detailedTrialHistory = []; // reset debug history
     baselineHistory = []; // reset graph data with outcomes
 
+    // Increment round ID for trial history boundary detection
+    currentRoundId++;
+
     // Initialize or continue nback engine
     if (!nbackEngine) {
         // Create new nback engine if none exists
@@ -1787,9 +1889,6 @@ function startGame() {
             colors: COLORS
         });
     }
-    // If adaptiveGame already exists from localStorage, continue using it
-    // Just reset the current session history, not the learning data
-    adaptiveGame.history = { colors: [], positions: [], timestamps: [] };
 
     // Initialize cell hiding based on how long player was away
     if (wasPlayerAwayTooLong()) {
@@ -2043,9 +2142,16 @@ function stopGame(autoEnded = false) {
         applyDeactivatedCells();
     }
 
+    // Save all data to disk on game end
+    saveTrialHistory();
+    savePerformanceToDisk();
+    saveNBackEngineState();
+
     if (rounds >= 1 || autoEnded) {
         showResults();
     }
+
+    updateStatsDisplay();
 }
 
 function updateRoundDisplay() {
@@ -2280,18 +2386,24 @@ function updateStatsDisplay() {
         }
     }
 
-    // LocalStorage size
+    // LocalStorage and memory usage
     display += '├────────────────────────────────────────────────────┤\n';
-    const lsSize = getLocalStorageSize();
-    display += makeLine(`<strong>Storage</strong>`);
-    display += makeLine(`LocalStorage: ${lsSize}`);
+    const lsInfo = getLocalStorageInfo();
+    display += makeLine(`<strong>LocalStorage</strong>: ${lsInfo.total}`);
+    lsInfo.top.forEach(entry => {
+        display += makeLine(`  ${entry}`);
+    });
+
+    // RAM usage (Chrome only)
+    if (performance.memory) {
+        const used = formatBytes(performance.memory.usedJSHeapSize);
+        const total = formatBytes(performance.memory.totalJSHeapSize);
+        display += makeLine(`<strong>RAM</strong>: ${used} / ${total}`);
+    }
 
     display += '└────────────────────────────────────────────────────┘';
 
     statsEl.innerHTML = display;
-
-    // Save to localStorage after updating display
-    saveNBackEngineState();
 }
 
 // ------------------ Color Preview Debug ------------------
