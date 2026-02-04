@@ -100,6 +100,10 @@
             cursor: pointer;
         }
 
+        #startBtn {
+            margin-top: 25px;
+        }
+
         #matchBtn {
             margin-top: 20px;
         }
@@ -119,6 +123,7 @@
             height: 100%;
             width: 0%;
             background: #57b9c6;
+            border-radius: 4px;
             transition: width 0.3s linear;
         }
 
@@ -132,7 +137,7 @@
         }
 
         #nBackButtons {
-            width: 300px;
+            width: 380px;
             min-height: 40px;
             margin: 0 auto 20px auto;
             display: flex;
@@ -253,9 +258,8 @@
         }
 
         #grid {
-            width: 300px;
+            width: 100%;
             height: 300px;
-            margin: 20px auto;
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             grid-template-rows: repeat(3, 1fr);
@@ -271,9 +275,7 @@
                 padding-right: 12px;
             }
             #grid {
-                width: calc(100vw - 24px);
                 height: calc(100vw - 24px);
-                max-width: 420px;
                 max-height: 420px;
             }
             #nBackButtons {
@@ -386,19 +388,7 @@
             pointer-events: none;
         }
 
-        #results {
-            margin-top: 5px;
-            font-size: 18px;
-            min-height: 20px;
-        }
-
-        /* Activity Heatmap */
-        #activityHeatmap {
-            margin: 8px auto 30px auto;
-            width: 280px;
-            max-width: calc(100% - 20px);
-        }
-
+        /* Activity Heatmap (inside banner) */
         .heatmap-container {
             display: flex;
             justify-content: center;
@@ -412,9 +402,10 @@
         }
 
         .heatmap-month-title {
-            font-size: 9px;
+            font-size: 12px;
             color: #666;
-            margin-bottom: 2px;
+            font-weight: bold;
+            margin-bottom: 5px;
         }
 
         .heatmap-grid {
@@ -458,7 +449,7 @@
         .heatmap-cell {
             width: 13px;
             height: 13px;
-            border-radius: 2px;
+            border-radius: 3.14px;
         }
 
         .heatmap-outside {
@@ -469,34 +460,230 @@
             background: rgba(200, 200, 200, 0.15);
         }
 
+        .heatmap-goal {
+            position: relative;
+            background: rgba(200, 200, 200, 0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .heatmap-goal::after {
+            content: '!!!';
+            font-size: 18px;
+            font-weight: bold;
+            color: #CD1C18;
+            line-height: 1;
+            transform: rotate(-10deg);
+            display: inline-block;
+        }
+
         .heatmap-level-0 {
             background: rgba(200, 200, 200, 0.4);
         }
 
         .heatmap-level-1 {
-            background: rgba(76, 175, 80, 0.35);
+            background: rgba(35, 174, 58, 0.25);
         }
 
         .heatmap-level-2 {
-            background: rgba(76, 175, 80, 0.55);
+            background: rgba(35, 174, 58, 0.5);
         }
 
         .heatmap-level-3 {
-            background: rgba(76, 175, 80, 0.75);
+            background: rgba(35, 174, 58, 0.75);
         }
 
         .heatmap-level-4 {
-            background: rgba(76, 175, 80, 0.95);
+            background: rgb(35, 174, 58);
         }
 
         .heatmap-today {
             outline: 1px solid rgba(0, 0, 0, 0.4);
+            animation: todayPulse 1s ease-in-out infinite;
+        }
+
+        /* Streak connectors for consecutive level-4 days */
+        .heatmap-streak-start,
+        .heatmap-streak-middle,
+        .heatmap-streak-end {
+            position: relative;
+            background: #FFB800 !important;
+        }
+
+        .heatmap-streak-start::after,
+        .heatmap-streak-middle::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 3px;
+            height: 5px;
+            background: #FFB800;
+        }
+
+        .heatmap-streak-middle::before,
+        .heatmap-streak-end::before {
+            content: '';
+            position: absolute;
+            top: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 3px;
+            height: 5px;
+            background: #FFB800;
+        }
+
+        @keyframes todayPulse {
+            0%, 100% {
+                outline-color: rgba(0, 0, 0, 0.8);
+            }
+            50% {
+                outline-color: rgba(0, 0, 0, 0.15);
+            }
+        }
+
+        /* Results Banner: popup overlay on grid */
+        #gridContainer {
+            position: relative;
+            width: 380px;
+            margin: 20px auto;
         }
 
         @media (max-width: 480px) {
-            #activityHeatmap {
-                width: calc(100vw - 44px);
-                max-width: 400px;
+            #gridContainer {
+                width: calc(100vw - 24px);
+                max-width: 420px;
+            }
+        }
+
+        @media (min-width: 481px) {
+            #grid {
+                height: 380px;
+            }
+        }
+
+        #resultsBanner {
+            position: absolute;
+            top: 45%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 92%;
+            min-height: 180px;
+            background: rgba(255, 242, 220, 0.97);
+            border-radius: 16px;
+            outline: 1px solid rgba(0, 0, 0, 0.82);
+            outline-offset: -1px;
+            z-index: 50;
+            opacity: 1;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+        }
+
+        #resultsBanner.banner-hidden {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.92);
+            pointer-events: none;
+        }
+
+        #bannerContent {
+            padding: 24px 28px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 180px;
+            gap: 16px;
+        }
+
+        #bannerStats {
+            width: 100%;
+            text-align: center;
+        }
+
+        #bannerStats:empty {
+            display: none;
+        }
+
+        #bannerHeatmap {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        #bannerHeatmap:empty {
+            display: none;
+        }
+
+        #bannerHeatmap .heatmap-container {
+            gap: 10px;
+        }
+
+        /* Scaled heatmap cells in banner */
+        #bannerHeatmap .heatmap-cell {
+            width: 15px;
+            height: 15px;
+        }
+
+        #bannerHeatmap .heatmap-day-label {
+            width: 12px;
+            height: 15px;
+            font-size: 9px;
+            line-height: 15px;
+        }
+
+        #bannerHeatmap .heatmap-month-title {
+            font-size: 12px;
+        }
+
+        #bannerHeatmap .heatmap-week {
+            gap: 3px;
+        }
+
+        #bannerHeatmap .heatmap-weeks {
+            gap: 3px;
+        }
+
+        #bannerHeatmap .heatmap-labels {
+            gap: 3px;
+        }
+
+        /* Desktop: adjusted banner and heatmap for 380px grid */
+        @media (min-width: 481px) {
+            #resultsBanner {
+                min-height: 160px;
+            }
+
+            #bannerContent {
+                padding: 20px 24px;
+                min-height: 160px;
+                gap: 14px;
+            }
+
+            #bannerHeatmap .heatmap-container {
+                gap: 8px;
+            }
+
+            #bannerHeatmap .heatmap-cell {
+                width: 13px;
+                height: 13px;
+            }
+
+            #bannerHeatmap .heatmap-day-label {
+                width: 10px;
+                height: 13px;
+                font-size: 8px;
+                line-height: 13px;
+            }
+
+            #bannerHeatmap .heatmap-month-title {
+                font-size: 12px;
+            }
+
+            #bannerHeatmap .heatmap-week,
+            #bannerHeatmap .heatmap-weeks,
+            #bannerHeatmap .heatmap-labels {
+                gap: 2px;
             }
         }
 
@@ -612,9 +799,19 @@
         </div>
     </div>
 
-    <div id="grid"></div>
+    <div id="gridContainer" style="position: relative;">
+        <div id="grid"></div>
 
-    <div id="timerWrapper" style="position: relative; width: 280px; margin: 5px auto;">
+        <!-- Results Banner: overlays grid, shows heatmap and end stats -->
+        <div id="resultsBanner" class="banner-hidden">
+            <div id="bannerContent">
+                <div id="bannerStats"></div>
+                <div id="bannerHeatmap"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="timerWrapper" style="position: relative; width: 360px; margin: 5px auto;">
         <div id="timerProgress" style="position:relative; width:100%; height:8px; background:#ddd; border-radius:4px; overflow:visible; transition: height 0.3s ease; cursor: pointer;">
             <div id="timerFill" style="height:100%; width:0%; background:#57b9c6; transition: width 0.3s linear;"></div>
             <div id="playtimePopup">Daily session tracker</div>
@@ -622,9 +819,7 @@
         <button id="stopBtn" disabled style="display: none;">Break</button>
     </div>
 
-    <div id="results"></div>
-
-    <div id="activityHeatmap"></div>
+    <!-- Results and heatmap moved to #resultsBanner above the grid -->
 
     <button id="startBtn">Start (Space)</button>
     <button id="matchBtn" disabled style="display: none;">Match (Space)</button>
@@ -647,6 +842,7 @@
         <button id="testUnlockBtn" style="font-size: 12px; padding: 5px 10px;">Test Unlock</button>
         <button id="changeLayoutBtn" style="font-size: 12px; padding: 5px 10px;">Change Layout</button>
         <button id="placeColorBtn" style="font-size: 12px; padding: 5px 10px;">Place Color</button>
+        <button id="fillHeatmapBtn" style="font-size: 12px; padding: 5px 10px;">Fill Heatmap</button>
 
         <div id="historyContainer" style="display: none; margin-top: 15px; padding: 12px; background: #f5f5f5; border-radius: 8px; max-width: 700px; margin-left: auto; margin-right: auto;">
             <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 13px; color: #333;">Last 10 Trials</h3>

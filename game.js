@@ -543,13 +543,56 @@ function getAllDailyStats() {
     return stats;
 }
 
+// Helper: check if a date has level-4 playtime (20+ min)
+function isLevel4(dateStr, todayStr, elapsedSec) {
+    const seconds = dateStr === todayStr ? elapsedSec : getPlayTime(dateStr);
+    return seconds >= 1200;
+}
+
+// Helper: find current streak start date (returns null if no active streak)
+function findStreakStart(today, todayStr, elapsedSec) {
+    // Check if today is level-4
+    if (!isLevel4(todayStr, todayStr, elapsedSec)) {
+        return null; // No active streak
+    }
+
+    // Walk backwards to find streak start
+    let streakStart = new Date(today);
+    let checkDate = new Date(today);
+
+    while (true) {
+        checkDate.setDate(checkDate.getDate() - 1);
+        const checkDateStr = formatDateLocal(checkDate);
+
+        if (!isLevel4(checkDateStr, todayStr, elapsedSec)) {
+            break; // Found the day before streak started
+        }
+        streakStart = new Date(checkDate);
+    }
+
+    return streakStart;
+}
+
 // Render the activity heatmap (3 months, Monday start, 2 weeks ahead)
 function renderActivityHeatmap() {
-    const container = document.getElementById("activityHeatmap");
+    const container = bannerHeatmap;
     if (!container) return;
 
     const today = new Date();
     const todayStr = formatDateLocal(today);
+
+    // Find current streak and calculate 21-day goal
+    // (total of 7h training is required, if you train 20min per day)
+    const streakStart = findStreakStart(today, todayStr, elapsedSeconds);
+    let goalDateStr = null;
+    if (streakStart) {
+        const goalDate = new Date(streakStart);
+        goalDate.setDate(goalDate.getDate() + 20); // 21 days total (day 0 + 20)
+        // Only show flag if goal is in the future
+        if (goalDate > today) {
+            goalDateStr = formatDateLocal(goalDate);
+        }
+    }
 
     // Month names (3 letter)
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -621,7 +664,9 @@ function renderActivityHeatmap() {
                 // Check if date is in the future (but within 2 weeks for last month)
                 if (cellDate > today) {
                     if (monthIndex === 2 && cellDate <= endDate) {
-                        html += '<div class="heatmap-cell heatmap-future"></div>';
+                        const isGoal = dateStr === goalDateStr;
+                        const goalClass = isGoal ? ' heatmap-goal' : '';
+                        html += `<div class="heatmap-cell heatmap-future${goalClass}"></div>`;
                     } else {
                         html += '<div class="heatmap-cell heatmap-outside"></div>';
                     }
@@ -633,7 +678,8 @@ function renderActivityHeatmap() {
 
                 // Color levels based on playtime thresholds
                 let colorClass = 'heatmap-level-0';
-                if (seconds >= 1200) colorClass = 'heatmap-level-4';      // 20+ min
+                const isCurrentLevel4 = seconds >= 1200;
+                if (isCurrentLevel4) colorClass = 'heatmap-level-4';      // 20+ min
                 else if (seconds >= 600) colorClass = 'heatmap-level-3';  // 10+ min
                 else if (seconds >= 300) colorClass = 'heatmap-level-2';  // 5+ min
                 else if (seconds >= 30) colorClass = 'heatmap-level-1';   // 30+ sec
@@ -641,7 +687,31 @@ function renderActivityHeatmap() {
                 const isToday = dateStr === todayStr;
                 const todayClass = isToday ? ' heatmap-today' : '';
 
-                html += `<div class="heatmap-cell ${colorClass}${todayClass}" title="${dateStr}: ${Math.floor(seconds / 60)}min"></div>`;
+                // Check for streak (consecutive level-4 days)
+                let streakClass = '';
+                if (isCurrentLevel4) {
+                    // Check previous day
+                    const prevDate = new Date(cellDate);
+                    prevDate.setDate(prevDate.getDate() - 1);
+                    const prevDateStr = formatDateLocal(prevDate);
+                    const prevIsLevel4 = isLevel4(prevDateStr, todayStr, elapsedSeconds);
+
+                    // Check next day
+                    const nextDate = new Date(cellDate);
+                    nextDate.setDate(nextDate.getDate() + 1);
+                    const nextDateStr = formatDateLocal(nextDate);
+                    const nextIsLevel4 = nextDate <= today && isLevel4(nextDateStr, todayStr, elapsedSeconds);
+
+                    if (prevIsLevel4 && nextIsLevel4) {
+                        streakClass = ' heatmap-streak-middle';
+                    } else if (prevIsLevel4) {
+                        streakClass = ' heatmap-streak-end';
+                    } else if (nextIsLevel4) {
+                        streakClass = ' heatmap-streak-start';
+                    }
+                }
+
+                html += `<div class="heatmap-cell ${colorClass}${todayClass}${streakClass}" title="${dateStr}: ${Math.floor(seconds / 60)}min"></div>`;
             }
 
             html += '</div>';
@@ -652,6 +722,28 @@ function renderActivityHeatmap() {
 
     html += '</div>';
     container.innerHTML = html;
+}
+
+// Show results banner (overlays grid with heatmap OR stats, not both)
+function showBanner(showStats = false) {
+    if (!resultsBanner) return;
+
+    if (showStats) {
+        // End screen: show stats only, no heatmap
+        if (bannerHeatmap) bannerHeatmap.innerHTML = '';
+    } else {
+        // Idle screen: show heatmap only, no stats
+        if (bannerStats) bannerStats.innerHTML = '';
+        renderActivityHeatmap();
+    }
+
+    resultsBanner.classList.remove('banner-hidden');
+}
+
+// Hide results banner (during gameplay)
+function hideBanner() {
+    if (!resultsBanner) return;
+    resultsBanner.classList.add('banner-hidden');
 }
 
 // Load saved timer from localStorage or reset if new day
@@ -1056,7 +1148,9 @@ const matchBtn = document.getElementById("matchBtn");
 const roundDisplay = document.getElementById("roundDisplay");
 const timerFill = document.getElementById("timerFill");
 const timerProgress = document.getElementById("timerProgress");
-const resultsEl = document.getElementById("results");
+const resultsBanner = document.getElementById("resultsBanner");
+const bannerStats = document.getElementById("bannerStats");
+const bannerHeatmap = document.getElementById("bannerHeatmap");
 const showColorsBtn = document.getElementById("showColorsBtn");
 const extraColorsContainer = document.getElementById("extraColorsContainer");
 const doubleSpeedBtn = document.getElementById("doubleSpeedBtn");
@@ -1466,6 +1560,9 @@ loadCellHidingState();
 loadDailyTimer();
 loadNBackAccuracies();
 loadUnlockedLevel();
+
+// Show banner with heatmap on page load
+showBanner(false);
 
 // Load saved N-back level preference
 const savedN = localStorage.getItem("selectedN");
@@ -1931,8 +2028,9 @@ function startGame() {
     // Mark start of this game round
     currentGameStartTime = Date.now();
 
-    // Clear results and close progress bar
-    resultsEl.innerHTML = "";
+    // Hide results banner and clear stats
+    hideBanner();
+    if (bannerStats) bannerStats.innerHTML = "";
 
     // Quickly shrink progress bar back to small size
     timerProgress.style.height = "8px";
@@ -1963,10 +2061,6 @@ function startGame() {
     // Hide GitHub footer during gameplay
     const githubFooter = document.getElementById("githubFooter");
     if (githubFooter) githubFooter.style.display = "none";
-
-    // Hide activity heatmap during gameplay
-    const heatmap = document.getElementById("activityHeatmap");
-    if (heatmap) heatmap.style.display = "none";
 
     // Update button visibility (game is now in playing mode)
     startBtn.style.display = "none";
@@ -2149,6 +2243,9 @@ function stopGame(autoEnded = false) {
 
     if (rounds >= 1 || autoEnded) {
         showResults();
+    } else {
+        // No results to show, just display banner with heatmap
+        showBanner(false);
     }
 
     updateStatsDisplay();
@@ -2192,23 +2289,32 @@ function showResults() {
         }
 
         const loadBar = '█'.repeat(Math.floor(avgLoad)) + '░'.repeat(Math.floor(maxUniqueColors - avgLoad));
-        memoryLoadHtml = `<br><span style="font-size: 12px; color: #666;">Memory Load: <span style="color: ${loadColor};">${loadBar}</span>  ${roundedAvg} / ${maxUniqueColors}</span>`;
+        memoryLoadHtml = `
+            <div style="font-size: 12px; color: #666; margin-top: 12px;">
+                Memory Load: <span style="color: ${loadColor};">${loadBar}</span> ${roundedAvg} / ${maxUniqueColors}
+            </div>`;
     }
 
-    resultsEl.innerHTML = `
-     <div style="text-align:left; display:inline-block; margin-top:5px;">
-        <p>
-            <strong>Accuracy:</strong>
-            <span id="accuracyNumber">0</span>%
-            <br>
-            <strong>Correct:</strong> ${correctMatches} / ${totalTargets}
-            | <strong>Incorrect:</strong> ${incorrectMatches}
-            <br>
-            <span style="font-size: 12px; color: #666;">Total Rounds: ${rounds}</span>
+    // Render stats to banner
+    bannerStats.innerHTML = `
+        <div style="text-align: center;">
+            <div style="font-size: 36px; font-weight: bold; color: #333; margin-bottom: 8px;">
+                <span id="accuracyNumber">0</span><span style="font-size: 20px; color: #555;">%</span>
+            </div>
+            <div style="font-size: 14px; color: #555; margin-bottom: 6px;">
+                <strong>Correct:</strong> ${correctMatches} / ${totalTargets}
+                <span style="margin: 0 10px; color: #ccc;">|</span>
+                <strong>Incorrect:</strong> ${incorrectMatches}
+            </div>
+            <div style="font-size: 12px; color: #888;">
+                Rounds: ${rounds}
+            </div>
             ${memoryLoadHtml}
-        </p>
-    </div>
+        </div>
     `;
+
+    // Show banner with stats
+    showBanner(true);
 
     const display = document.getElementById("accuracyNumber");
 
@@ -2671,6 +2777,66 @@ placeColorBtn.addEventListener("click", () => {
 
     console.log(`Debug: Placed ${randomColor.name} (${randomColor.color}) in cell`);
 });
+
+// Fill Heatmap debug button (fills heatmap with various playtimes to test colors)
+const fillHeatmapBtn = document.getElementById("fillHeatmapBtn");
+if (fillHeatmapBtn) {
+    fillHeatmapBtn.addEventListener("click", () => {
+        const today = new Date();
+
+        // Last 7 days: force level-4 streak (20+ min each)
+        for (let i = 0; i <= 7; i++) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            const dateStr = formatDateLocal(date);
+
+            const existing = performanceHistory.get(dateStr) || {
+                n: 2, hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0, sumLoad: 0, maxLoad: 0, playTime: 0
+            };
+            existing.playTime = 1200 + Math.floor(Math.random() * 600); // 20-30 min
+            performanceHistory.set(dateStr, existing);
+        }
+
+        // Also set today's elapsed time to trigger streak for current day
+        elapsedSeconds = 1200 + Math.floor(Math.random() * 600);
+        localStorage.setItem("dailyPlaySeconds", elapsedSeconds.toString());
+
+        // Fill remaining days (8-90) with random playtimes
+        for (let i = 8; i <= 90; i++) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            const dateStr = formatDateLocal(date);
+
+            // Random level distribution
+            const rand = Math.random();
+            let playTime;
+            if (rand < 0.15) {
+                playTime = 0; // level 0: no play
+            } else if (rand < 0.35) {
+                playTime = 30 + Math.floor(Math.random() * 250); // level 1: 30s to 280s
+            } else if (rand < 0.55) {
+                playTime = 300 + Math.floor(Math.random() * 300); // level 2: 5 to 10 min
+            } else if (rand < 0.75) {
+                playTime = 600 + Math.floor(Math.random() * 600); // level 3: 10 to 20 min
+            } else {
+                playTime = 1200 + Math.floor(Math.random() * 600); // level 4: 20+ min
+            }
+
+            const existing = performanceHistory.get(dateStr) || {
+                n: 2, hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0, sumLoad: 0, maxLoad: 0, playTime: 0
+            };
+            existing.playTime = playTime;
+            performanceHistory.set(dateStr, existing);
+        }
+
+        // Save and re-render
+        savePerformanceToDisk();
+        renderActivityHeatmap();
+        showBanner(false);
+
+        console.log("Debug: Filled heatmap with 7-day streak + random playtimes");
+    });
+}
 
 // Show or hide debug tools section based on DEBUG flag
 const debugSection = document.getElementById("debugSection");
