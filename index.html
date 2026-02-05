@@ -458,6 +458,38 @@
 
         .heatmap-future {
             background: rgba(200, 200, 200, 0.15);
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .heatmap-future-dot::after {
+            content: '';
+            width: 4px;
+            height: 4px;
+            background: rgba(120, 120, 120, 0.5);
+            border-radius: 50%;
+            position: absolute;
+            animation: futureDotWave 0.6s ease-out forwards;
+            animation-delay: var(--wave-delay, 0s);
+            opacity: 0;
+            transform: translateX(0);
+        }
+
+        @keyframes futureDotWave {
+            0% {
+                opacity: 0;
+                transform: translateX(-3px);
+            }
+            40% {
+                opacity: 1;
+                transform: translateX(2px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateX(0);
+            }
         }
 
         .heatmap-goal {
@@ -508,7 +540,6 @@
         .heatmap-streak-middle,
         .heatmap-streak-end {
             position: relative;
-            background: #FFB800 !important;
         }
 
         .heatmap-streak-start::after,
@@ -520,7 +551,7 @@
             transform: translateX(-50%);
             width: 3px;
             height: 5px;
-            background: #FFB800;
+            background: rgb(20, 120, 40);
         }
 
         .heatmap-streak-middle::before,
@@ -532,7 +563,7 @@
             transform: translateX(-50%);
             width: 3px;
             height: 5px;
-            background: #FFB800;
+            background: rgb(20, 120, 40);
         }
 
         @keyframes todayPulse {
@@ -542,6 +573,25 @@
             50% {
                 outline-color: rgba(0, 0, 0, 0.15);
             }
+        }
+
+        @keyframes goalZonePulse {
+            0%, 100% {
+                opacity: 0.30;
+            }
+            50% {
+                opacity: 0.10;
+            }
+        }
+
+        #goalZone {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            background: rgba(87, 185, 198, 1.0);
+            border-radius: 0 4px 4px 0;
+            animation: goalZonePulse 1.0s ease-in-out infinite;
+            pointer-events: none;
         }
 
         /* Results Banner: popup overlay on grid */
@@ -878,9 +928,9 @@
     </div>
 
     <footer id="githubFooter" style="margin-top: 0; padding: 10px; text-align: center;">
-        <a href="https://github.com/rqp314/BrainZag" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: #333; font-size: 14px;">
+        <a href="https://github.com/rqp314/BrainZag?tab=readme-ov-file#brainzagcom" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: #333; font-size: 14px;">
             <img src="GitHub_Invertocat_Black_Clearspace.png" alt="GitHub" style="width: 24px; height: 24px;">
-            <span>GitHub</span>
+            <span>More info</span>
         </a>
     </footer>
 

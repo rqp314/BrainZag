@@ -588,9 +588,10 @@ function renderActivityHeatmap() {
     if (streakStart) {
         const goalDate = new Date(streakStart);
         goalDate.setDate(goalDate.getDate() + 20); // 21 days total (day 0 + 20)
-        // Only show flag if goal is in the future
-        if (goalDate > today) {
-            goalDateStr = formatDateLocal(goalDate);
+        const goalDateFormatted = formatDateLocal(goalDate);
+        // Only show flag if goal is strictly in the future (not today or past)
+        if (goalDateFormatted > todayStr) {
+            goalDateStr = goalDateFormatted;
         }
     }
 
@@ -614,6 +615,9 @@ function renderActivityHeatmap() {
 
     // Fixed 5 weeks per month for uniform display
     const WEEKS_PER_MONTH = 5;
+
+    // Counter for wave animation delay on future cells
+    let futureCellIndex = 0;
 
     let html = '<div class="heatmap-container">';
 
@@ -666,7 +670,12 @@ function renderActivityHeatmap() {
                     if (monthIndex === 2 && cellDate <= endDate) {
                         const isGoal = dateStr === goalDateStr;
                         const goalClass = isGoal ? ' heatmap-goal' : '';
-                        html += `<div class="heatmap-cell heatmap-future${goalClass}"></div>`;
+                        // Only show dots if goal exists and date is before or on goal
+                        const showDot = goalDateStr && dateStr <= goalDateStr && !isGoal;
+                        const dotClass = showDot ? ' heatmap-future-dot' : '';
+                        const waveDelay = showDot ? `style="--wave-delay: ${futureCellIndex * 0.08}s"` : '';
+                        html += `<div class="heatmap-cell heatmap-future${goalClass}${dotClass}" ${waveDelay}></div>`;
+                        if (showDot) futureCellIndex++;
                     } else {
                         html += '<div class="heatmap-cell heatmap-outside"></div>';
                     }
@@ -1135,6 +1144,45 @@ function removeMinuteIndicators() {
         minuteIndicators.forEach(m => m.remove());
         minuteIndicators = [];
     }, 300);
+}
+
+// Create pulsating goal zone between fill and next indicator (or end of bar)
+function createGoalZone(fillPercent) {
+    // Remove any existing goal zone
+    removeGoalZone();
+
+    // Find the next indicator position after the fill
+    const upcomingIndicators = minuteIndicators
+        .map(indicator => parseFloat(indicator.dataset.position))
+        .filter(pos => pos > fillPercent)
+        .sort((a, b) => a - b);
+
+    // Target is next indicator or end of bar (100%)
+    const targetPercent = upcomingIndicators.length > 0 ? upcomingIndicators[0] : 100;
+
+    // Create goal zone element
+    const goalZone = document.createElement("div");
+    goalZone.id = "goalZone";
+    goalZone.style.left = `${fillPercent}%`;
+    goalZone.style.width = `${targetPercent - fillPercent}%`;
+
+    // Fade in the goal zone
+    goalZone.style.opacity = "0";
+    timerProgress.appendChild(goalZone);
+
+    // Trigger animation after reflow
+    requestAnimationFrame(() => {
+        goalZone.style.transition = "opacity 0.3s linear";
+        goalZone.style.opacity = "";  // Let CSS animation take over
+    });
+}
+
+// Remove goal zone
+function removeGoalZone() {
+    const existingZone = document.getElementById("goalZone");
+    if (existingZone) {
+        existingZone.remove();
+    }
 }
 
 
@@ -2036,8 +2084,9 @@ function startGame() {
     timerProgress.style.height = "8px";
     timerProgress.style.overflow = "hidden";
 
-    // Remove minute indicators
+    // Remove minute indicators and goal zone
     removeMinuteIndicators();
+    removeGoalZone();
 
     // Make progress bar container transparent during gameplay
     timerProgress.style.background = "transparent";
@@ -2189,6 +2238,8 @@ function stopGame(autoEnded = false) {
                 // Animation complete
                 isAnimatingBar = false;
                 updateIndicatorStyles(targetPercent);
+                // Show pulsating goal zone after animation
+                createGoalZone(targetPercent);
             }
         };
 
@@ -2291,7 +2342,7 @@ function showResults() {
         const loadBar = '█'.repeat(Math.floor(avgLoad)) + '░'.repeat(Math.floor(maxUniqueColors - avgLoad));
         memoryLoadHtml = `
             <div style="font-size: 12px; color: #666; margin-top: 12px;">
-                Memory Load: <span style="color: ${loadColor};">${loadBar}</span> ${roundedAvg} / ${maxUniqueColors}
+                Memory Load: <span style="color: ${loadColor};">${loadBar}</span>  ${roundedAvg} / ${maxUniqueColors}
             </div>`;
     }
 
