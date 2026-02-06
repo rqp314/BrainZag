@@ -87,6 +87,12 @@ let rounds = 0;
 let correctMatches = 0;
 let incorrectMatches = 0;
 let totalTargets = 0;
+
+// Positive insight tracking
+let currentStreak = 0;
+let longestStreak = 0;
+let difficultMatchesCaught = 0; // matches caught when load was high (>= 66% of max)
+let lastRoundAccuracy = null; // accuracy from previous round (for comparison)
 let roundLocked = false;
 let currentActiveCell = null; // track the cell currently showing stimulus
 let currentBgCell = null; // track corresponding background cell
@@ -102,9 +108,9 @@ let accumulatedPlayTime = 0; // total ms played in current session (resets when 
 let layoutPlayTimeStart = 0; // accumulated play time when current layout was created
 let cellHidingActive = false; // whether cell hiding is currently active
 
-const AWAY_THRESHOLD = 5 * 60 * 1000; // 5 minutes in ms
+const AWAY_THRESHOLD = 0.5 * 60 * 1000; // 5 minutes in ms
 const WARMUP_DURATION = 1 * 60 * 1000; // 1 minute warmup before cell hiding starts
-const LAYOUT_DURATION = 2 * 60 * 1000; // 2 minutes per layout (based on play time)
+const LAYOUT_DURATION = 1.618 * 60 * 1000; // 1.618 minutes per layout (based on play time)
 
 // N-Back Engine
 let nbackEngine = null;
@@ -1100,9 +1106,13 @@ function updateIndicatorStyles(animatedPercent = null) {
     // Get the next 2 upcoming indicators
     const nextTwoPositions = upcomingIndicators.slice(0, 2).map(item => item.position);
 
+    // Get the very next indicator position for bounce animation
+    const nextIndicatorPosition = upcomingIndicators.length > 0 ? upcomingIndicators[0].position : null;
+
     minuteIndicators.forEach(indicator => {
         const indicatorPosition = parseFloat(indicator.dataset.position);
         const label = indicator.querySelector("div");
+        const isNextIndicator = indicatorPosition === nextIndicatorPosition;
 
         if (progressPercent > indicatorPosition) {
             // Progress bar has passed this indicator - make it grey/thin
@@ -1110,6 +1120,7 @@ function updateIndicatorStyles(animatedPercent = null) {
             indicator.style.width = "1px";
             indicator.style.transform = "translateX(-0.5px)";
             if (label) {
+                label.classList.remove("minute-label-bounce");
                 label.style.color = "rgba(0, 0, 0, 0.4)";
                 label.style.fontWeight = "400";
             }
@@ -1119,6 +1130,12 @@ function updateIndicatorStyles(animatedPercent = null) {
             indicator.style.width = "2px";
             indicator.style.transform = "translateX(-1px)";
             if (label) {
+                // Apply bounce animation only to the very next indicator's label
+                if (isNextIndicator) {
+                    label.classList.add("minute-label-bounce");
+                } else {
+                    label.classList.remove("minute-label-bounce");
+                }
                 label.style.color = "rgba(0, 0, 0, 0.8)";
                 label.style.fontWeight = "bold";
             }
@@ -1128,6 +1145,7 @@ function updateIndicatorStyles(animatedPercent = null) {
             indicator.style.width = "1.5px";
             indicator.style.transform = "translateX(-0.75px)";
             if (label) {
+                label.classList.remove("minute-label-bounce");
                 label.style.color = "rgba(0, 0, 0, 0.65)";
                 label.style.fontWeight = "600";
             }
@@ -1202,6 +1220,11 @@ const bannerHeatmap = document.getElementById("bannerHeatmap");
 const showColorsBtn = document.getElementById("showColorsBtn");
 const extraColorsContainer = document.getElementById("extraColorsContainer");
 const doubleSpeedBtn = document.getElementById("doubleSpeedBtn");
+const roundProgressContainer = document.getElementById("roundProgressContainer");
+const roundProgressCircle = document.querySelector("#roundProgressCircle .progress-circle");
+
+const TOTAL_ROUNDS = 40;
+const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * 12; // 2 * PI * radius (12)
 
 // Per n-back accuracy tracking (running average)
 let nBackStats = {}; // { "1": {sum: 425, count: 5, avg: 85}, "2": {sum: 144, count: 2, avg: 72}, ... }
@@ -1250,6 +1273,7 @@ function getNBackAverage(nLevel) {
 
 let highestUnlockedLevel = 2; // default: levels 1 and 2 are unlocked
 const UNLOCK_THRESHOLD = 80; // 80% accuracy needed to unlock next level
+const UNLOCK_MIN_ROUNDS = 20; // minimum rounds required to qualify for unlock
 
 // Load highest unlocked level from localStorage
 function loadUnlockedLevel() {
@@ -1279,14 +1303,15 @@ function isLevelLocked(level) {
 }
 
 // Try to unlock next level (called after a game ends)
-function checkAndUnlockNextLevel(nLevel, accuracy) {
+function checkAndUnlockNextLevel(nLevel, accuracy, roundsPlayed) {
     // Only check if playing at the highest unlocked level
-    if (nLevel === highestUnlockedLevel && accuracy >= UNLOCK_THRESHOLD) {
+    // AND player completed enough rounds for a meaningful accuracy
+    if (nLevel === highestUnlockedLevel && accuracy >= UNLOCK_THRESHOLD && roundsPlayed >= UNLOCK_MIN_ROUNDS) {
         // Unlock next level (max 6)
         if (highestUnlockedLevel < 6) {
             highestUnlockedLevel++;
             saveUnlockedLevel();
-            console.log(`Unlocked level ${highestUnlockedLevel}!`);
+            console.log(`Unlocked level ${highestUnlockedLevel}! (${roundsPlayed} rounds at ${accuracy}%)`);
 
             // Animate the newly unlocked button
             animateUnlockedButton(highestUnlockedLevel);
@@ -1612,6 +1637,11 @@ loadUnlockedLevel();
 // Show banner with heatmap on page load
 showBanner(false);
 
+// Start the start button animation on page load
+setTimeout(() => {
+    startBtn.classList.add("animate");
+}, 1618);
+
 // Load saved N-back level preference
 const savedN = localStorage.getItem("selectedN");
 if (savedN) {
@@ -1707,6 +1737,11 @@ function nextStimulus() {
                     wasMatch: wasMatch,
                     userClicked: false
                 };
+
+                // Break streak if user missed a match
+                if (wasMatch) {
+                    currentStreak = 0;
+                }
             }
         }
     }
@@ -1966,8 +2001,24 @@ function handleMatch() {
     const { lastTrial, wasMatch } = getLastTrialInfo();
     const correct = wasMatch; // clicking on a match is correct
 
-    if (wasMatch) correctMatches++;
-    else incorrectMatches++;
+    if (wasMatch) {
+        correctMatches++;
+        currentStreak++;
+        if (currentStreak > longestStreak) {
+            longestStreak = currentStreak;
+        }
+        // Track difficult matches (high memory load >= 66% of max)
+        if (nbackEngine) {
+            const stats = nbackEngine.getStats();
+            const loadPercent = stats.workingMemory.currentLoad / stats.workingMemory.maxUniqueColors;
+            if (loadPercent >= 0.66) {
+                difficultMatchesCaught++;
+            }
+        }
+    } else {
+        incorrectMatches++;
+        currentStreak = 0; // break streak on false positive
+    }
 
     // Record response in nback engine
     if (nbackEngine) {
@@ -2017,11 +2068,20 @@ function startGame() {
     correctMatches = 0;
     incorrectMatches = 0;
     totalTargets = 0;
+    currentStreak = 0;
+    longestStreak = 0;
+    difficultMatchesCaught = 0;
     isRunning = true;
     progressBarFull = false;
     reactionTimer.reset(); // reset reaction timer for new game
     detailedTrialHistory = []; // reset debug history
     baselineHistory = []; // reset graph data with outcomes
+
+    // Stop any locked button vibration from end screen
+    stopLockedButtonVibration();
+
+    // Stop start button animation
+    startBtn.classList.remove("animate");
 
     // Increment round ID for trial history boundary detection
     currentRoundId++;
@@ -2115,6 +2175,12 @@ function startGame() {
     startBtn.style.display = "none";
     matchBtn.style.display = "inline-block";
     stopBtn.style.display = "inline-block";
+    roundProgressContainer.style.display = "block";
+
+    // Reset round progress circle to empty
+    if (roundProgressCircle) {
+        roundProgressCircle.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE;
+    }
 
     startBtn.disabled = true;
     stopBtn.disabled = false;
@@ -2240,6 +2306,11 @@ function stopGame(autoEnded = false) {
                 updateIndicatorStyles(targetPercent);
                 // Show pulsating goal zone after animation
                 createGoalZone(targetPercent);
+
+                // Start the start button animation after a slight delay
+                setTimeout(() => {
+                    startBtn.classList.add("animate");
+                }, 1618);
             }
         };
 
@@ -2250,6 +2321,7 @@ function stopGame(autoEnded = false) {
     startBtn.style.display = "inline-block";
     matchBtn.style.display = "none";
     stopBtn.style.display = "none";
+    roundProgressContainer.style.display = "none";
 
     startBtn.disabled = false;
     stopBtn.disabled = true;
@@ -2304,8 +2376,122 @@ function stopGame(autoEnded = false) {
 
 function updateRoundDisplay() {
     roundDisplay.textContent = `Round: ${rounds}`;
+    updateRoundProgressCircle();
 }
 
+// Update the round progress circle (fills from empty to full over 40 rounds)
+function updateRoundProgressCircle() {
+    if (!roundProgressCircle) return;
+
+    const progress = Math.min(rounds / TOTAL_ROUNDS, 1);
+    const offset = CIRCLE_CIRCUMFERENCE * (1 - progress);
+    roundProgressCircle.style.strokeDashoffset = offset;
+}
+
+
+// ------------------ Positive Insights Generator ------------------
+
+// Catalog of possible insights with priority weights
+function generatePositiveInsight(accuracy, roundsPlayed) {
+    const insights = [];
+
+    // 1. Longest streak (if >= 3)
+    if (longestStreak >= 3) {
+        insights.push({
+            text: `Longest streak: ${longestStreak} correct`,
+            priority: longestStreak >= 7 ? 10 : longestStreak >= 5 ? 7 : 4
+        });
+    }
+
+    // 2. Difficult matches caught
+    if (difficultMatchesCaught >= 1) {
+        insights.push({
+            text: `Caught ${difficultMatchesCaught} difficult match${difficultMatchesCaught > 1 ? 'es' : ''}`,
+            priority: difficultMatchesCaught >= 3 ? 8 : 5
+        });
+    }
+
+    // 3. Better accuracy than last round
+    if (lastRoundAccuracy !== null && accuracy > lastRoundAccuracy) {
+        const improvement = accuracy - lastRoundAccuracy;
+        insights.push({
+            text: `+${improvement}% better than last round`,
+            priority: improvement >= 10 ? 9 : 6
+        });
+    }
+
+    // 4. Perfect or near-perfect accuracy
+    if (accuracy === 100 && roundsPlayed >= 10) {
+        insights.push({
+            text: `Perfect round!`,
+            priority: 12
+        });
+    } else if (accuracy >= 90 && roundsPlayed >= 10) {
+        insights.push({
+            text: `Excellent accuracy!`,
+            priority: 8
+        });
+    }
+
+    // 5. Completed full round (40 trials)
+    if (roundsPlayed >= 40) {
+        insights.push({
+            text: `Full round completed`,
+            priority: 6
+        });
+    }
+
+    // 6. Good number of rounds played
+    if (roundsPlayed >= 20 && roundsPlayed < 40) {
+        insights.push({
+            text: `Solid session: ${roundsPlayed} rounds`,
+            priority: 3
+        });
+    }
+
+    // 7. Daily playtime milestones
+    const totalMinutes = Math.floor(elapsedSeconds / 60);
+    if (totalMinutes >= 20) {
+        insights.push({
+            text: `Daily goal reached: ${totalMinutes} min`,
+            priority: 7
+        });
+    } else if (totalMinutes >= 10 && totalMinutes < 13) {
+        insights.push({
+            text: `Halfway to daily goal`,
+            priority: 4
+        });
+    } else if (totalMinutes >= 2 && totalMinutes < 6) {
+        insights.push({
+            text: `Good start: ${totalMinutes} min today`,
+            priority: 2
+        });
+    }
+
+    // 8. Any correct matches at all (fallback positive)
+    if (correctMatches >= 1) {
+        insights.push({
+            text: `Nice focus`,
+            priority: 1
+        });
+    }
+
+    // 9. Just showing up is good (ultimate fallback)
+    if (insights.length === 0 || roundsPlayed >= 1) {
+        insights.push({
+            text: ``,
+            priority: 0
+        });
+    }
+
+    // Sort by priority (highest first)
+    insights.sort((a, b) => b.priority - a.priority);
+
+    // Take top 5 and randomly pick one for variety
+    const topInsights = insights.slice(0, 5);
+    const randomIndex = Math.floor(Math.random() * topInsights.length);
+    return topInsights[randomIndex].text;
+}
 
 // ------------------ Results ------------------
 
@@ -2339,12 +2525,26 @@ function showResults() {
             loadColor = COLORS.find(c => c.name === "red").color; // hard
         }
 
-        const loadBar = '█'.repeat(Math.floor(avgLoad)) + '░'.repeat(Math.floor(maxUniqueColors - avgLoad));
+        const TOTAL_SEGMENTS = 4;
+        const loadRatio = avgLoad / maxUniqueColors;
+        const filledSegments = Math.round(loadRatio * TOTAL_SEGMENTS);
+        const emptySegments = TOTAL_SEGMENTS - filledSegments;
+        const loadBar = '█'.repeat(filledSegments) + '░'.repeat(emptySegments);
         memoryLoadHtml = `
             <div style="font-size: 12px; color: #666; margin-top: 12px;">
-                Memory Load: <span style="color: ${loadColor};">${loadBar}</span>  ${roundedAvg} / ${maxUniqueColors}
+                Memory Load:  <span style="color: ${loadColor};">${loadBar}</span>   ${roundedAvg} / ${maxUniqueColors}
             </div>`;
     }
+
+    // Generate positive insight
+    const insightText = generatePositiveInsight(percentage, rounds);
+    const insightHtml = `
+        <div style="font-size: 13px; margin-top: 20px; font-weight: 800;">
+            ${insightText}
+        </div>`;
+
+    // Save accuracy for next round comparison
+    lastRoundAccuracy = percentage;
 
     // Render stats to banner
     bannerStats.innerHTML = `
@@ -2361,6 +2561,7 @@ function showResults() {
                 Rounds: ${rounds}
             </div>
             ${memoryLoadHtml}
+            ${insightHtml}
         </div>
     `;
 
@@ -2392,8 +2593,8 @@ function showResults() {
             // Update running average for this n-back level
             updateNBackAverage(n, percentage);
 
-            // Check if we should unlock the next level
-            checkAndUnlockNextLevel(n, percentage);
+            // Check if we should unlock the next level (requires minimum rounds)
+            checkAndUnlockNextLevel(n, percentage, rounds);
 
             // Update button colors immediately after saving accuracy
             updateNBackButtons();
@@ -2401,6 +2602,44 @@ function showResults() {
     };
 
     requestAnimationFrame(animateAccuracy);
+
+    // Start vibration on locked buttons with staggered delays
+    startLockedButtonVibration();
+}
+
+// Start animation on the next locked n-back button only
+// Randomly chooses vibrate (most of the time) or jump (occasionally)
+function startLockedButtonVibration() {
+    const lockedButtons = document.querySelectorAll(".n-back-btn.locked");
+
+    // Sometimes no animation at all
+    if (Math.random() < 0.3)
+        return
+
+    // Only animate the first (next) locked button
+    if (lockedButtons.length > 0) {
+        const nextLockedBtn = lockedButtons[0];
+
+        // 80% chance vibrate, 20% chance jump
+        const useJump = Math.random() < 0.2;
+
+        setTimeout(() => {
+            if (useJump) {
+                nextLockedBtn.classList.add("jump");
+            } else {
+                nextLockedBtn.classList.add("vibrate");
+            }
+        }, 100);
+    }
+}
+
+// Stop animation on all locked buttons
+function stopLockedButtonVibration() {
+    const lockedButtons = document.querySelectorAll(".n-back-btn.locked");
+    lockedButtons.forEach(btn => {
+        btn.classList.remove("vibrate");
+        btn.classList.remove("jump");
+    });
 }
 
 
@@ -3313,5 +3552,28 @@ testUnlockBtn.addEventListener("click", () => {
         saveUnlockedLevel();
         updateNBackButtons();
         testUnlockBtn.textContent = "Test Unlock (Reset)";
+    }
+});
+
+// ------------------ Tab Focus Detection (Refresh after 5min absence) ------------------
+
+let tabHiddenTimestamp = null;
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+        // Tab is being hidden, record timestamp
+        tabHiddenTimestamp = Date.now();
+    } else {
+        // Tab is visible again
+        if (tabHiddenTimestamp) {
+            const awayDuration = Date.now() - tabHiddenTimestamp;
+            tabHiddenTimestamp = null;
+
+            // If user was away 5+ minutes and game is NOT running, refresh page
+            if (awayDuration >= AWAY_THRESHOLD && !isRunning) {
+                console.log(`User returned after ${Math.round(awayDuration / 1000 / 60)} min, refreshing page`);
+                window.location.reload();
+            }
+        }
     }
 });

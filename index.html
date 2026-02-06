@@ -94,18 +94,91 @@
             min-height: 30px;
         }
 
+        /* Round Progress Circle (shows during gameplay) */
+        #roundProgressContainer {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 5px;
+            width: 30px;
+            height: 30px;
+            display: none;
+        }
+
+        #roundProgressCircle {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+
+        #roundProgressCircle .bg-circle {
+            fill: none;
+            stroke: rgba(200, 200, 200, 0.5);
+            stroke-width: 3;
+        }
+
+        #roundProgressCircle .progress-circle {
+            fill: none;
+            stroke: rgba(150, 150, 150, 0.6);
+            stroke-width: 3;
+            stroke-linecap: round;
+            stroke-dasharray: 75.4; /* 2 * PI * 12 (radius) */
+            stroke-dashoffset: 75.4; /* starts empty */
+            transition: stroke-dashoffset 0.3s ease;
+        }
+
         #startBtn, #matchBtn {
             font-size: 20px;
-            padding: 34px 55px;
+            padding: 34px 0;
             cursor: pointer;
+            width: 220px;
+            box-sizing: border-box;
         }
 
         #startBtn {
             margin-top: 25px;
+            transform-origin: center center;
+        }
+
+        #startBtn.animate {
+            animation: startBtnRotate 1.4s ease-in-out infinite;
+        }
+
+        @keyframes startBtnRotate {
+            0% {
+                transform: rotate(0deg);
+            }
+            6% {
+                transform: rotate(-0.7deg);
+            }
+            12% {
+                transform: rotate(0.7deg);
+            }
+            18% {
+                transform: rotate(-0.7deg);
+            }
+            24% {
+                transform: rotate(0.7deg);
+            }
+            30% {
+                transform: rotate(-0.525deg);
+            }
+            36% {
+                transform: rotate(0.6deg);
+            }
+            42% {
+                transform: rotate(-0.5deg);
+            }
+            48% {
+                transform: rotate(0.5deg);
+            }
+            54%, 100% {
+                transform: rotate(0deg);
+            }
         }
 
         #matchBtn {
-            margin-top: 20px;
+            margin-top: 25px;
         }
 
         #timerProgress {
@@ -210,6 +283,56 @@
 
         .n-back-btn.locked:hover {
             background: rgba(180, 180, 180, 0.5);
+        }
+
+        @keyframes lockedVibrate {
+            0%, 100% {
+                transform: translateX(0) translateY(0);
+            }
+            10% {
+                transform: translateX(-0.7px) translateY(0);
+            }
+            20% {
+                transform: translateX(0.7px) translateY(0);
+            }
+            30% {
+                transform: translateX(-0.3px) translateY(0);
+            }
+            40% {
+                transform: translateX(0.3px) translateY(0);
+            }
+            50%, 100% {
+                transform: translateX(0) translateY(0);
+            }
+        }
+
+        @keyframes lockedJump {
+            0%, 100% {
+                transform: translateY(0);
+            }
+            20% {
+                transform: translateY(-3px);
+            }
+            40% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-2px);
+            }
+            65% {
+                transform: translateY(0);
+            }
+            75%, 100% {
+                transform: translateY(0);
+            }
+        }
+
+        .n-back-btn.locked.vibrate {
+            animation: lockedVibrate 0.5s ease-in-out infinite;
+        }
+
+        .n-back-btn.locked.jump {
+            animation: lockedJump 0.9s ease-out infinite;
         }
 
         @keyframes unlockPulse {
@@ -594,6 +717,35 @@
             pointer-events: none;
         }
 
+        /* Bounce animation for next minute marker label */
+        @keyframes minuteLabelBounce {
+            0%, 5% {
+                transform: translateY(-50%) translateX(0);
+            }
+            15% {
+                transform: translateY(-50%) translateX(5px);
+            }
+            25% {
+                transform: translateY(-50%) translateX(1px);
+            }
+            35% {
+                transform: translateY(-50%) translateX(3px);
+            }
+            45% {
+                transform: translateY(-50%) translateX(0);
+            }
+            55% {
+                transform: translateY(-50%) translateX(2px);
+            }
+            65%, 100% {
+                transform: translateY(-50%) translateX(0);
+            }
+        }
+
+        .minute-label-bounce {
+            animation: minuteLabelBounce 1.4s ease-out infinite;
+        }
+
         /* Results Banner: popup overlay on grid */
         #gridContainer {
             position: relative;
@@ -621,7 +773,7 @@
             transform: translate(-50%, -50%);
             width: 92%;
             min-height: 180px;
-            background: rgba(255, 242, 220, 0.97);
+            background: rgba(255, 246, 231, 0.97);
             border-radius: 16px;
             outline: 1px solid rgba(0, 0, 0, 0.82);
             outline-offset: -1px;
@@ -865,6 +1017,12 @@
         <div id="timerProgress" style="position:relative; width:100%; height:8px; background:#ddd; border-radius:4px; overflow:visible; transition: height 0.3s ease; cursor: pointer;">
             <div id="timerFill" style="height:100%; width:0%; background:#57b9c6; transition: width 0.3s linear;"></div>
             <div id="playtimePopup">Daily session tracker</div>
+        </div>
+        <div id="roundProgressContainer">
+            <svg id="roundProgressCircle" viewBox="0 0 30 30">
+                <circle class="bg-circle" cx="15" cy="15" r="12"/>
+                <circle class="progress-circle" cx="15" cy="15" r="12"/>
+            </svg>
         </div>
         <button id="stopBtn" disabled style="display: none;">Break</button>
     </div>
