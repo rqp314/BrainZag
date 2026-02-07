@@ -37,6 +37,8 @@ const DISPLAY_TIME = 500;   // 0.5s stimulus showing
 const INTERVAL_TIME = 2500; // 2.5s between items
 const TIMING_JITTER = 50;  // ±50ms random variation in timing
 
+// TODO data versioning maybe required ?
+
 // Get randomized interval with jitter
 function getRandomizedInterval() {
     return INTERVAL_TIME; // TODO still required ?
@@ -102,15 +104,15 @@ let speedMultiplier = 1; // 1 = normal speed, 2 = double speed
 let deactivatedCells = []; // indices of cells that are hidden for this game (0-8)
 
 // Cell hiding timing system
+const WARMUP_DURATION = 1 * 60 * 1000; // 1 minute warmup before cell hiding starts
+const LAYOUT_DURATION = 1.618 * 60 * 1000; // 1.618 minutes per layout (based on play time)
 let lastActivityTimestamp = null; // when player last had activity (persisted)
 let currentGameStartTime = null; // when current game round started
 let accumulatedPlayTime = 0; // total ms played in current session (resets when away > 5 min)
 let layoutPlayTimeStart = 0; // accumulated play time when current layout was created
 let cellHidingActive = false; // whether cell hiding is currently active
 
-const AWAY_THRESHOLD = 0.5 * 60 * 1000; // 5 minutes in ms
-const WARMUP_DURATION = 1 * 60 * 1000; // 1 minute warmup before cell hiding starts
-const LAYOUT_DURATION = 1.618 * 60 * 1000; // 1.618 minutes per layout (based on play time)
+const AWAY_THRESHOLD = 5 * 60 * 1000; // 5 minutes in ms
 
 // N-Back Engine
 let nbackEngine = null;
@@ -761,28 +763,11 @@ function hideBanner() {
     resultsBanner.classList.add('banner-hidden');
 }
 
-// Load saved timer from localStorage or reset if new day
+// Initialize daily timer from performanceHistory (single source of truth)
 function loadDailyTimer() {
-    const savedDate = localStorage.getItem("dailyPlayDate");
-    const savedSeconds = parseInt(localStorage.getItem("dailyPlaySeconds"));
     const today = formatDateLocal(new Date());
-
-    if (savedDate === today && !isNaN(savedSeconds)) {
-        elapsedSeconds = savedSeconds;
-    } else {
-        // Update previous day's playTime in memory (will be saved on game end)
-        if (savedDate && !isNaN(savedSeconds) && savedSeconds > 0) {
-            const existing = performanceHistory.get(savedDate) || {
-                n: 1, hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0, sumLoad: 0, maxLoad: 0, playTime: 0
-            };
-            existing.playTime = savedSeconds;
-            performanceHistory.set(savedDate, existing);
-        }
-
-        elapsedSeconds = 0;
-        localStorage.setItem("dailyPlaySeconds", "0");
-        localStorage.setItem("dailyPlayDate", today);
-    }
+    const todayData = performanceHistory.get(today);
+    elapsedSeconds = todayData ? todayData.playTime : 0;
 
     updateTimerUI();
     loadMinutePositions();
@@ -833,11 +818,6 @@ function regenerateMinutePositions() {
     saveMinutePositions();
 }
 
-// Save current daily timer
-function saveDailyTimer() {
-    localStorage.setItem("dailyPlaySeconds", elapsedSeconds.toString());
-    updatePlayTime(elapsedSeconds);
-}
 
 // Create segmented progress bar (islands with gaps)
 function createSegmentedProgressBar() {
@@ -994,7 +974,7 @@ function startDailyTimer() {
         }
 
         updateTimerUI();
-        saveDailyTimer();
+        updatePlayTime(elapsedSeconds);
     }, 1000);
 }
 
@@ -1226,48 +1206,7 @@ const roundProgressCircle = document.querySelector("#roundProgressCircle .progre
 const TOTAL_ROUNDS = 40;
 const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * 12; // 2 * PI * radius (12)
 
-// Per n-back accuracy tracking (running average)
-let nBackStats = {}; // { "1": {sum: 425, count: 5, avg: 85}, "2": {sum: 144, count: 2, avg: 72}, ... }
 
-// Load per n-back stats from localStorage
-function loadNBackAccuracies() {
-    try {
-        const saved = localStorage.getItem("nBackStats");
-        if (saved) {
-            nBackStats = JSON.parse(saved);
-        }
-    } catch (e) {
-        console.error("Failed to load n-back stats:", e);
-        nBackStats = {};
-    }
-}
-
-// Save per n-back stats to localStorage
-function saveNBackAccuracies() {
-    try {
-        localStorage.setItem("nBackStats", JSON.stringify(nBackStats));
-    } catch (e) {
-        console.error("Failed to save n-back stats:", e);
-    }
-}
-
-// Update running average for an n-back level
-function updateNBackAverage(nLevel, newAccuracy) {
-    if (!nBackStats[nLevel]) {
-        nBackStats[nLevel] = { sum: 0, count: 0, avg: 0 };
-    }
-
-    nBackStats[nLevel].sum += newAccuracy;
-    nBackStats[nLevel].count += 1;
-    nBackStats[nLevel].avg = Math.round(nBackStats[nLevel].sum / nBackStats[nLevel].count);
-
-    saveNBackAccuracies();
-}
-
-// Get average accuracy for an n-back level
-function getNBackAverage(nLevel) {
-    return nBackStats[nLevel] ? nBackStats[nLevel].avg : 0;
-}
 
 // ------------------ Level Unlocking System ------------------
 
@@ -1423,27 +1362,21 @@ function setupNBackButtons() {
 
             const newN = parseInt(btn.dataset.n);
 
+            // early exit if nothing has changed
+            if (n == newN) return;
+
             // Check if level is locked
             if (isLevelLocked(newN)) {
                 showLockedPopup(btn);
                 return;
             }
 
-            // Update global n variable immediately
+            // Update global n variable and persist
             n = newN;
-
-            // Save to localStorage
             localStorage.setItem("selectedN", n.toString());
-
-            // Stop current game if running
-            if (isRunning) {
-                stopGame(false);
-            }
 
             // Reset nback engine to use new N level
             nbackEngine = null;
-
-            // Clear saved nback engine state since N changed
             localStorage.removeItem("nbackEngineState");
 
             // Update button appearance
@@ -1630,8 +1563,6 @@ function deactivateCellHiding() {
 createGrid();
 loadLastActivityTimestamp();
 loadCellHidingState();
-loadDailyTimer();
-loadNBackAccuracies();
 loadUnlockedLevel();
 
 // Show banner with heatmap on page load
@@ -1677,6 +1608,7 @@ if (loadedGame) {
 loadTrialHistory();
 loadPerformanceHistory();
 initPendingPerformance();
+loadDailyTimer();
 
 // Setup n-back buttons
 setupNBackButtons();
@@ -2102,7 +2034,6 @@ function startGame() {
         accumulatedPlayTime = 0;
         layoutPlayTimeStart = 0;
         cellHidingActive = false;
-        saveCellHidingState();
         console.log("Player was away > 5 min, starting with full grid");
     } else {
         // Player returned within 5 min
@@ -2121,13 +2052,11 @@ function startGame() {
                 applyDeactivatedCells();
                 layoutPlayTimeStart = accumulatedPlayTime;
                 nbackEngine.setExcludedPositions(getExcludedPositions());
-                saveCellHidingState();
                 console.log(`Layout expired, new layout: ${deactivatedCells.length} cells hidden for ${Math.round(LAYOUT_DURATION / 1000)}s play time`);
             }
         } else if (!cellHidingActive && accumulatedPlayTime >= WARMUP_DURATION) {
             // Warmup complete, activate cell hiding now (at round start)
             activateCellHiding();
-            saveCellHidingState();
             console.log(`Warmup complete, cell hiding activated: ${deactivatedCells.length} cells hidden`);
         }
         // If warmup not complete yet, accumulatedPlayTime preserves progress
@@ -2234,11 +2163,6 @@ function stopGame(autoEnded = false) {
 
     // Stop focus mode and restore normal visuals
     stopFocusMode();
-
-    // End session tracking
-    if (nbackEngine) {
-        nbackEngine.endSession();
-    }
 
     isRunning = false;
     speedMultiplier = 1; // reset speed to normal
@@ -2538,10 +2462,7 @@ function showResults() {
 
     // Generate positive insight
     const insightText = generatePositiveInsight(percentage, rounds);
-    const insightHtml = `
-        <div style="font-size: 13px; margin-top: 20px; font-weight: 800;">
-            ${insightText}
-        </div>`;
+    const insightHtml = `<div style="font-size: 13px; margin-top: 20px; font-weight: 800;">${insightText}</div>`;
 
     // Save accuracy for next round comparison
     lastRoundAccuracy = percentage;
@@ -2589,9 +2510,6 @@ function showResults() {
             requestAnimationFrame(animateAccuracy);
         } else {
             display.textContent = percentage;
-
-            // Update running average for this n-back level
-            updateNBackAverage(n, percentage);
 
             // Check if we should unlock the next level (requires minimum rounds)
             checkAndUnlockNextLevel(n, percentage, rounds);
@@ -2911,19 +2829,8 @@ debugSetTimeBtn.addEventListener("click", () => {
 
     // Set to 18 minutes (1080 seconds)
     elapsedSeconds = 1080;
-    localStorage.setItem("dailyPlaySeconds", "1080");
-    localStorage.setItem("dailyPlayDate", today);
-
-    // Set demo running averages for different n-back levels
-    nBackStats = {
-        "1": { sum: 475, count: 5, avg: 95 },
-        "2": { sum: 320, count: 4, avg: 80 },
-        "3": { sum: 195, count: 3, avg: 65 },
-        "4": { sum: 100, count: 2, avg: 50 },
-        "5": { sum: 35, count: 1, avg: 35 },
-        "6": { sum: 20, count: 1, avg: 20 }
-    };
-    saveNBackAccuracies();
+    pendingPerformance.playTime = elapsedSeconds;
+    savePerformanceToDisk();
 
     // Update UI
     const currentProgress = elapsedSeconds % CHUNK_SECONDS;
@@ -3089,7 +2996,8 @@ if (fillHeatmapBtn) {
 
         // Also set today's elapsed time to trigger streak for current day
         elapsedSeconds = 1200 + Math.floor(Math.random() * 600);
-        localStorage.setItem("dailyPlaySeconds", elapsedSeconds.toString());
+        pendingPerformance.playTime = elapsedSeconds;
+        savePerformanceToDisk();
 
         // Fill remaining days (8-90) with random playtimes
         for (let i = 8; i <= 90; i++) {

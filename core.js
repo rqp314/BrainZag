@@ -24,95 +24,6 @@ class LowPassFilter {
 }
 
 // ============================================================================
-// SESSION TRACKER - Track play sessions and timing
-// ============================================================================
-
-class SessionTracker {
-  constructor() {
-    this.loadSession();
-  }
-
-  loadSession() {
-    try {
-      const data = localStorage.getItem('nback_session_data');
-      if (data) {
-        const parsed = JSON.parse(data);
-        this.lastSessionDate = new Date(parsed.lastSessionDate);
-        this.lastSessionDuration = parsed.lastSessionDuration || 0;
-        this.totalPlayTime = parsed.totalPlayTime || 0;
-        this.sessionCount = parsed.sessionCount || 0;
-        this.currentSessionStart = null;
-      } else {
-        this.initializeNew();
-      }
-    } catch (e) {
-      console.error('Failed to load session data:', e);
-      this.initializeNew();
-    }
-  }
-
-  initializeNew() {
-    this.lastSessionDate = null;
-    this.lastSessionDuration = 0;
-    this.totalPlayTime = 0;
-    this.sessionCount = 0;
-    this.currentSessionStart = null;
-  }
-
-  startSession() {
-    this.currentSessionStart = Date.now();
-  }
-
-  endSession() {
-    if (!this.currentSessionStart) return;
-
-    const duration = Date.now() - this.currentSessionStart;
-    this.lastSessionDate = new Date();
-    this.lastSessionDuration = duration;
-    this.totalPlayTime += duration;
-    this.sessionCount++;
-    this.currentSessionStart = null;
-
-    this.save();
-  }
-
-  save() {
-    try {
-      const data = {
-        lastSessionDate: this.lastSessionDate ? this.lastSessionDate.toISOString() : null,
-        lastSessionDuration: this.lastSessionDuration,
-        totalPlayTime: this.totalPlayTime,
-        sessionCount: this.sessionCount
-      };
-      localStorage.setItem('nback_session_data', JSON.stringify(data));
-    } catch (e) {
-      console.error('Failed to save session data:', e);
-    }
-  }
-
-  getTimeSinceLastSession() {
-    if (!this.lastSessionDate) return Infinity;
-    return Date.now() - this.lastSessionDate.getTime();
-  }
-
-  getCurrentSessionDuration() {
-    if (!this.currentSessionStart) return 0;
-    return Date.now() - this.currentSessionStart;
-  }
-
-  getStats() {
-    return {
-      lastSessionDate: this.lastSessionDate,
-      lastSessionDuration: this.lastSessionDuration,
-      totalPlayTime: this.totalPlayTime,
-      sessionCount: this.sessionCount,
-      timeSinceLastSession: this.getTimeSinceLastSession(),
-      currentSessionDuration: this.getCurrentSessionDuration()
-    };
-  }
-}
-
-// ============================================================================
 // COGNITIVE DRIFT DETECTOR - Detect fatigue and performance degradation
 // ============================================================================
 
@@ -1065,15 +976,10 @@ class NBackEngine {
   constructor(options = {}) {
     this.currentN = options.startN || 2;
     this.colors = options.colors || [];
-    this.sessionTracker = new SessionTracker();
-
     // Create the working memory trainer
     this.trainer = new WorkingMemoryTrainer(this.currentN, this.colors);
 
     this.currentTile = null;
-
-    // Start session tracking
-    this.sessionTracker.startSession();
   }
 
   generateNextTile() {
@@ -1101,7 +1007,6 @@ class NBackEngine {
 
   getStats() {
     const stats = this.trainer.getStats();
-    const sessionStats = this.sessionTracker.getStats();
 
     return {
       currentN: this.currentN,
@@ -1121,13 +1026,8 @@ class NBackEngine {
       },
       totalTrials: stats.totalTrials,
       driftDetector: stats.driftDetector,
-      isRecovery: stats.isRecovery,
-      session: sessionStats
+      isRecovery: stats.isRecovery
     };
-  }
-
-  endSession() {
-    this.sessionTracker.endSession();
   }
 
   reset() {
@@ -1154,7 +1054,6 @@ if (typeof module !== 'undefined' && module.exports) {
     NBackEngine,
     WorkingMemoryTrainer,
     LowPassFilter,
-    SessionTracker,
     CognitiveDriftDetector
   };
 }
