@@ -1686,7 +1686,7 @@ function nextStimulus() {
     currentBgCell = bgCells[actualCellIndex];
 
     randomCell.style.background = color;
-    randomCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
+    randomCell.style.outline = "1px solid rgba(0, 0, 0, 0.15)"; // fake shadow
     currentActiveCell = randomCell;
     coloredCellVisible = true;
 
@@ -2380,7 +2380,7 @@ function showResults() {
 
     // Generate positive insight
     const insightText = generatePositiveInsight(percentage, rounds);
-    const insightHtml = `<div style="font-size: 13px; margin-top: 20px; font-weight: 800;">${insightText}</div>`;
+    const insightHtml = `<div style="font-size: 13px; margin-top: 25px; font-weight: 800;">${insightText}</div>`;
 
     // Save accuracy for next round comparison
     lastRoundAccuracy = percentage;
@@ -2763,7 +2763,7 @@ if (IS_LOCAL_HOST) {
                 extraCell.style.height = "95px";
                 extraCell.style.background = COLORS[i].color;
                 extraCell.style.borderRadius = "8px";
-                extraCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
+                extraCell.style.outline = "1px solid rgba(0, 0, 0, 0.15)"; // fake shadow
                 extraColorsContainer.appendChild(extraCell);
             }
         }
@@ -2962,7 +2962,7 @@ if (IS_LOCAL_HOST) {
 
         // Place the color
         randomCell.style.background = randomColor.color;
-        randomCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
+        randomCell.style.outline = "1px solid rgba(0, 0, 0, 0.15)"; // fake shadow
         debugPlacedCell = randomCell;
 
         console.log(`Debug: Placed ${randomColor.name} (${randomColor.color}) in cell`);
