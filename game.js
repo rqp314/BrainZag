@@ -130,12 +130,10 @@ let performanceHistory = new Map();
 let pendingPerformance = null; // in memory until stopGame saves it
 
 // Debug: Trial history tracking
-let detailedTrialHistory = []; // stores last trials with full details
 let autopilotEnabled = false; // autopilot mode for debugging
 let statsVisible = true; // stats display visibility (default: true)
 
 // Debug: Graph tracking
-let baselineHistory = []; // stores baseline load over time with outcomes
 
 // Focus Mode (tunnel vision after 1 minute of uninterrupted play)
 let focusModeActive = false;
@@ -245,6 +243,7 @@ function addTrialToHistory(tile, nBack) {
         n: nBack,
         currentLoad: tile.currentLoad,
         targetLoad: tile.targetLoad,
+        targetUniqueColors: tile.targetUniqueColors,
         wasMatch: null,
         userClicked: null,
         correct: null,
@@ -1100,7 +1099,7 @@ function updateIndicatorStyles(animatedPercent = null) {
             indicator.style.width = "1px";
             indicator.style.transform = "translateX(-0.5px)";
             if (label) {
-                label.classList.remove("minute-label-bounce");
+                label.classList.remove("minute-label-bounce", "minute-label-drift");
                 label.style.color = "rgba(0, 0, 0, 0.4)";
                 label.style.fontWeight = "400";
             }
@@ -1110,11 +1109,15 @@ function updateIndicatorStyles(animatedPercent = null) {
             indicator.style.width = "2px";
             indicator.style.transform = "translateX(-1px)";
             if (label) {
-                // Apply bounce animation only to the very next indicator's label
+                // Apply animation only to the very next indicator's label
+                // Randomly pick between bounce and drift
                 if (isNextIndicator) {
-                    label.classList.add("minute-label-bounce");
+                    if (!label.classList.contains("minute-label-bounce") && !label.classList.contains("minute-label-drift")) {
+                        const anim = Math.random() < 0.4 ? "minute-label-drift" : "minute-label-bounce";
+                        label.classList.add(anim);
+                    }
                 } else {
-                    label.classList.remove("minute-label-bounce");
+                    label.classList.remove("minute-label-bounce", "minute-label-drift");
                 }
                 label.style.color = "rgba(0, 0, 0, 0.8)";
                 label.style.fontWeight = "bold";
@@ -1125,7 +1128,7 @@ function updateIndicatorStyles(animatedPercent = null) {
             indicator.style.width = "1.5px";
             indicator.style.transform = "translateX(-0.75px)";
             if (label) {
-                label.classList.remove("minute-label-bounce");
+                label.classList.remove("minute-label-bounce", "minute-label-drift");
                 label.style.color = "rgba(0, 0, 0, 0.65)";
                 label.style.fontWeight = "600";
             }
@@ -1659,22 +1662,9 @@ function nextStimulus() {
             currentLoad: lastTrial ? lastTrial.currentLoad : 0
         });
 
-        // Update previous trial outcome for graph
-        if (baselineHistory.length > 0) {
-            // The previous trial's outcome needs to be updated
-            const prevEntry = baselineHistory.find(entry => entry.trial === index);
-            if (prevEntry && prevEntry.outcome.userClicked === null) {
-                // Only update if user didn't click (outcome not yet set)
-                prevEntry.outcome = {
-                    wasMatch: wasMatch,
-                    userClicked: false
-                };
-
-                // Break streak if user missed a match
-                if (wasMatch) {
-                    currentStreak = 0;
-                }
-            }
+        // Break streak if user missed a match
+        if (wasMatch) {
+            currentStreak = 0;
         }
     }
 
@@ -1705,21 +1695,6 @@ function nextStimulus() {
 
     // Check if this is a match (only considers trials within current round)
     const actualIsMatch = isActualMatchInRound(tile.color, n);
-
-    detailedTrialHistory.push({
-        trialNumber: index,
-        colorName: tile.color,
-        colorHex: color,
-        isMatch: actualIsMatch, // based on actual sequence, not adaptive intent
-        userClicked: false, // will be updated if user clicks
-        position: tile.position,
-        timestamp: Date.now()
-    });
-
-    // Keep only last 20 trials in history (we only show 10)
-    if (detailedTrialHistory.length > 20) {
-        detailedTrialHistory.shift();
-    }
 
     const cells = getPlayableCells();
     const randomCell = cells[cellIndex];
@@ -1781,29 +1756,9 @@ function nextStimulus() {
         }
     }
 
-    // Record current load and outcome for graph
-    if (nbackEngine) {
-        const stats = nbackEngine.getStats();
-        baselineHistory.push({
-            trial: index,
-            baseline: stats.workingMemory.currentLoad, // Current unique colors in memory
-            targetUniqueColors: stats.workingMemory.targetUniqueColors, // Target number of unique colors
-            maxUniqueColors: stats.workingMemory.maxUniqueColors,
-            outcome: {
-                wasMatch: null, // will be set when user responds (or doesn't respond)
-                userClicked: null // will be set when user responds (or doesn't respond)
-            }
-        });
-
-        // Keep only last 40 trials
-        if (baselineHistory.length > 40) {
-            baselineHistory.shift();
-        }
-
-        // Live update graph if it's showing
-        if (graphShowing) {
-            updateGraphDisplay();
-        }
+    // Live update graph if it's showing
+    if (graphShowing) {
+        updateGraphDisplay();
     }
 
     // Monitor rolling average errors and end if too many mistakes
@@ -1918,11 +1873,6 @@ function handleMatch() {
         }, 120);
     }
 
-    // Mark user click in detailed history (for debug display)
-    if (detailedTrialHistory.length > 0) {
-        detailedTrialHistory[detailedTrialHistory.length - 1].userClicked = true;
-    }
-
     // Don't count clicks before the first n is reached for accuracy
     if (index <= n) return;
 
@@ -1970,15 +1920,6 @@ function handleMatch() {
             currentLoad: lastTrial ? lastTrial.currentLoad : 0
         });
 
-        // Update trial outcome for graph
-        if (baselineHistory.length > 0) {
-            const currentEntry = baselineHistory[baselineHistory.length - 1];
-            currentEntry.outcome = {
-                wasMatch: wasMatch,
-                userClicked: true
-            };
-        }
-
         updateStatsDisplay();
 
         // Live update graph if it's showing
@@ -2006,8 +1947,6 @@ function startGame() {
     isRunning = true;
     progressBarFull = false;
     reactionTimer.reset(); // reset reaction timer for new game
-    detailedTrialHistory = []; // reset debug history
-    baselineHistory = []; // reset graph data with outcomes
 
     // Stop any locked button vibration from end screen
     stopLockedButtonVibration();
@@ -2430,12 +2369,12 @@ function showResults() {
 
     // Get memory load info (session average)
     let memoryLoadHtml = '';
-    if (nbackEngine && baselineHistory.length > 0) {
-        const stats = nbackEngine.getStats();
-        const maxUniqueColors = stats.workingMemory.maxUniqueColors;
+    const roundTrials = getCurrentRoundTrials();
+    if (nbackEngine && roundTrials.length > 0) {
+        const maxUniqueColors = n + 1;
 
         // Calculate average load across the session
-        const avgLoad = baselineHistory.reduce((sum, entry) => sum + entry.baseline, 0) / baselineHistory.length;
+        const avgLoad = roundTrials.reduce((sum, t) => sum + t.currentLoad, 0) / roundTrials.length;
         const roundedAvg = Math.round(avgLoad * 10) / 10; // round to 1 decimal
 
         // Traffic light color based on load percentage
@@ -3050,8 +2989,9 @@ const historyContainer = document.getElementById("historyContainer");
 const historyDisplay = document.getElementById("historyDisplay");
 
 function updateHistoryDisplay() {
-    // Get last 10 trials
-    const last10 = detailedTrialHistory.slice(-10);
+    // Read last 10 trials from trialHistory (single source of truth)
+    const roundTrials = getCurrentRoundTrials();
+    const last10 = roundTrials.slice(-10);
 
     if (last10.length === 0) {
         historyDisplay.innerHTML = '<p style="color: #999;">No trials yet. Start a game to see history.</p>';
@@ -3061,35 +3001,39 @@ function updateHistoryDisplay() {
     let html = '<div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; min-height: 170px;">';
 
     last10.forEach((trial) => {
-        const isError = (trial.userClicked && !trial.isMatch) || (!trial.userClicked && trial.isMatch);
+        const colorEntry = COLORS.find(c => c.name === trial.color);
+        const colorHex = colorEntry ? colorEntry.color : '#999';
+        const isMatch = trial.wasMatch;
+        const userClicked = trial.userClicked;
+        const isError = (userClicked && !isMatch) || (!userClicked && isMatch);
 
         // Background color based on status
         let bgColor = '#fff';
         if (isError) {
             bgColor = '#ffebee'; // light red for errors
-        } else if (trial.isMatch && trial.userClicked) {
+        } else if (isMatch && userClicked) {
             bgColor = '#e8f5e9'; // light green for correct matches
         }
 
         html += `<div style="background: ${bgColor}; padding: 8px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 70px;">`;
 
         // Color swatch and name
-        html += `<div style="width: 26px; height: 26px; background: ${trial.colorHex}; border-radius: 3px; border: 2px solid #ccc;"></div>`;
-        html += `<div style="font-size: 10px; font-weight: 500;">${trial.colorName}</div>`;
+        html += `<div style="width: 26px; height: 26px; background: ${colorHex}; border-radius: 3px; border: 2px solid #ccc;"></div>`;
+        html += `<div style="font-size: 10px; font-weight: 500;">${trial.color}</div>`;
 
-        // Badges (compact icons/symbols) - Match first, then Clicked, then Errors
+        // Badges (compact icons/symbols)
         html += `<div style="display: flex; gap: 3px; flex-wrap: wrap; justify-content: center;">`;
 
-        if (trial.isMatch) {
+        if (isMatch) {
             html += `<span style="background: #4caf50; color: white; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">M</span>`;
         }
 
         if (isError) {
-            const errorSymbol = trial.userClicked && !trial.isMatch ? '✗' : '!';
+            const errorSymbol = userClicked && !isMatch ? '✗' : '!';
             html += `<span style="background: #f44336; color: white; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">${errorSymbol}</span>`;
         }
 
-        if (trial.userClicked) {
+        if (userClicked) {
             html += `<span style="background: #ffeb3b; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">✓</span>`;
         }
 
@@ -3129,7 +3073,8 @@ const graphContainer = document.getElementById("graphContainer");
 const graphDisplay = document.getElementById("graphDisplay");
 
 function updateGraphDisplay() {
-    if (baselineHistory.length === 0) {
+    const trials = getCurrentRoundTrials();
+    if (trials.length === 0) {
         graphDisplay.innerHTML = '<p style="color: #999; text-align: center; padding-top: 130px;">No data yet. Start a game to see the graph.</p>';
         return;
     }
@@ -3140,15 +3085,15 @@ function updateGraphDisplay() {
     const graphWidth = width - padding.left - padding.right;
     const graphHeight = height - padding.top - padding.bottom;
 
-    // Get data range
-    const maxUniqueColors = baselineHistory[0].maxUniqueColors;
+    // Get data range (maxUniqueColors = n + 1)
+    const maxUniqueColors = n + 1;
     const minLoad = 1;
-    const trials = baselineHistory.length;
+    const trialCount = trials.length;
 
     // Create SVG
     let svg = `<svg width="${width}" height="${height}" style="font-family: Arial, sans-serif; font-size: 11px;">`;
 
-    // Background - simple neutral color
+    // Background
     svg += `<rect x="${padding.left}" y="${padding.top}" width="${graphWidth}" height="${graphHeight}" fill="rgba(240, 240, 240, 0.3)"/>`;
 
     // Y-axis labels and grid lines (from minLoad to maxUniqueColors)
@@ -3165,9 +3110,9 @@ function updateGraphDisplay() {
 
     // Current load line
     let pathData = '';
-    baselineHistory.forEach((point, i) => {
-        const x = padding.left + (i / Math.max(trials - 1, 1)) * graphWidth;
-        const y = padding.top + graphHeight - ((point.baseline - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
+    trials.forEach((t, i) => {
+        const x = padding.left + (i / Math.max(trialCount - 1, 1)) * graphWidth;
+        const y = padding.top + graphHeight - ((t.currentLoad - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
 
         if (i === 0) {
             pathData += `M ${x} ${y}`;
@@ -3178,23 +3123,20 @@ function updateGraphDisplay() {
 
     svg += `<path d="${pathData}" fill="none" stroke="#2196F3" stroke-width="2"/>`;
 
-    // Trial outcome markers (dots) - show ALL green and red dots
+    // Trial outcome markers (dots)
     // Green = correct match click, Red = error (missed match or false positive)
-    for (let i = 0; i < baselineHistory.length; i++) {
-        const point = baselineHistory[i];
-        const outcome = point.outcome;
+    for (let i = 0; i < trialCount; i++) {
+        const t = trials[i];
 
         // Skip if outcome not yet recorded
-        if (!outcome || outcome.wasMatch === null || outcome.userClicked === null) continue;
+        if (t.wasMatch === null || t.userClicked === null) continue;
 
-        const x = padding.left + (i / Math.max(trials - 1, 1)) * graphWidth;
-        const y = padding.top + graphHeight - ((point.baseline - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
+        const x = padding.left + (i / Math.max(trialCount - 1, 1)) * graphWidth;
+        const y = padding.top + graphHeight - ((t.currentLoad - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
 
-        if (outcome.wasMatch && outcome.userClicked) {
-            // Correct match click - green dot
+        if (t.wasMatch && t.userClicked) {
             svg += `<circle cx="${x}" cy="${y}" r="6" fill="#4caf50" stroke="white" stroke-width="1.5" opacity="0.9"/>`;
-        } else if ((outcome.wasMatch && !outcome.userClicked) || (!outcome.wasMatch && outcome.userClicked)) {
-            // Error (missed match or false positive) - red dot
+        } else if ((t.wasMatch && !t.userClicked) || (!t.wasMatch && t.userClicked)) {
             svg += `<circle cx="${x}" cy="${y}" r="6" fill="#f44336" stroke="white" stroke-width="1.5" opacity="0.9"/>`;
         }
     }
