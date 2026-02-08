@@ -129,20 +129,6 @@ const MAX_DAYS_STORED = 3650; // ~10 years
 let performanceHistory = new Map();
 let pendingPerformance = null; // in memory until stopGame saves it
 
-// Debug: Trial history tracking
-let autopilotEnabled = false; // autopilot mode for debugging
-let statsVisible = true; // stats display visibility (default: true)
-
-// Debug: Graph tracking
-
-// Focus Mode (tunnel vision after 1 minute of uninterrupted play)
-let focusModeActive = false;
-let focusModeIntensity = 0; // 0 to 1, gradually increases
-let focusModeStartTime = null; // when gameplay started (for tracking 1 minute)
-let focusModeTransitionId = null; // animation frame ID for smooth transition
-const FOCUS_MODE_DELAY = 10000 // 60 seconds before focus mode kicks in
-const FOCUS_MODE_TRANSITION_DURATION = 30000; // 30 seconds to fully fade in (like night shift)
-
 // Load nback engine state from localStorage (trainer state only, not trial history)
 function loadNBackEngineState() {
     try {
@@ -507,48 +493,49 @@ function computeDPrime(hitRate, faRate) {
     return invNorm(cappedHitRate) - invNorm(cappedFaRate);
 }
 
-// Get computed stats for a day (for display/graphing)
-function getDailyStats(dateStr) {
-    const entry = performanceHistory.get(dateStr);
-    if (!entry) return null;
+// TODO: Get computed stats for a day (for display/graphing user's progression) thats for the future when we want to display graph
 
-    const trials = entry.hits + entry.misses + entry.falseAlarms + entry.correctRejections;
-    if (trials === 0) return null;
+// function getDailyStats(dateStr) {
+//     const entry = performanceHistory.get(dateStr);
+//     if (!entry) return null;
 
-    const totalMatches = entry.hits + entry.misses;
-    const totalNonMatches = entry.falseAlarms + entry.correctRejections;
-    const hitRate = totalMatches > 0 ? entry.hits / totalMatches : 0;
-    const faRate = totalNonMatches > 0 ? entry.falseAlarms / totalNonMatches : 0;
+//     const trials = entry.hits + entry.misses + entry.falseAlarms + entry.correctRejections;
+//     if (trials === 0) return null;
 
-    return {
-        date: dateStr,
-        n: entry.n,
-        trials: trials,
-        accuracy: (entry.hits + entry.correctRejections) / trials,
-        hitRate: hitRate,
-        faRate: faRate,
-        dPrime: totalMatches > 0 && totalNonMatches > 0 ? computeDPrime(hitRate, faRate) : null,
-        avgLoad: entry.sumLoad / trials,
-        maxLoad: entry.maxLoad,
-        playTime: entry.playTime
-    };
-}
+//     const totalMatches = entry.hits + entry.misses;
+//     const totalNonMatches = entry.falseAlarms + entry.correctRejections;
+//     const hitRate = totalMatches > 0 ? entry.hits / totalMatches : 0;
+//     const faRate = totalNonMatches > 0 ? entry.falseAlarms / totalNonMatches : 0;
 
-// Get all daily stats for graphing (returns array sorted by date)
-function getAllDailyStats() {
-    const stats = [];
+//     return {
+//         date: dateStr,
+//         n: entry.n,
+//         trials: trials,
+//         accuracy: (entry.hits + entry.correctRejections) / trials,
+//         hitRate: hitRate,
+//         faRate: faRate,
+//         dPrime: totalMatches > 0 && totalNonMatches > 0 ? computeDPrime(hitRate, faRate) : null,
+//         avgLoad: entry.sumLoad / trials,
+//         maxLoad: entry.maxLoad,
+//         playTime: entry.playTime
+//     };
+// }
 
-    for (const [dateStr] of performanceHistory) {
-        const dayStats = getDailyStats(dateStr);
-        if (dayStats) {
-            stats.push(dayStats);
-        }
-    }
+// // Get all daily stats for graphing (returns array sorted by date)
+// function getAllDailyStats() {
+//     const stats = [];
 
-    // Sort by date ascending
-    stats.sort((a, b) => a.date.localeCompare(b.date));
-    return stats;
-}
+//     for (const [dateStr] of performanceHistory) {
+//         const dayStats = getDailyStats(dateStr);
+//         if (dayStats) {
+//             stats.push(dayStats);
+//         }
+//     }
+
+//     // Sort by date ascending
+//     stats.sort((a, b) => a.date.localeCompare(b.date));
+//     return stats;
+// }
 
 // Helper: check if a date has level-4 playtime (20+ min)
 function isLevel4(dateStr, todayStr, elapsedSec) {
@@ -810,13 +797,6 @@ function saveMinutePositions() {
     localStorage.setItem("minutePositions", JSON.stringify(minutePositions));
     localStorage.setItem("minutePositionsDate", today);
 }
-
-// Regenerate minute positions (for debug button)
-function regenerateMinutePositions() {
-    minutePositions = generateFibonacciMinutePositions();
-    saveMinutePositions();
-}
-
 
 // Create segmented progress bar (islands with gaps)
 function createSegmentedProgressBar() {
@@ -1733,18 +1713,18 @@ function nextStimulus() {
         coloredCellVisible = false;
         // Don't restore squish animation if it's running
         // Just let the cell disappear
-    }, DISPLAY_TIME / speedMultiplier);
+    }, IS_LOCAL_HOST ? DISPLAY_TIME / speedMultiplier : DISPLAY_TIME);
 
     updateRoundDisplay();
     updateStatsDisplay();
 
     // Live update history if it's showing
-    if (historyShowing) {
+    if (IS_LOCAL_HOST && historyShowing) {
         updateHistoryDisplay();
     }
 
     // Autopilot: automatically click when there's a match
-    if (autopilotEnabled && nbackEngine && index > n) {
+    if (IS_LOCAL_HOST && autopilotEnabled && nbackEngine && index > n) {
         if (actualIsMatch) {
             // Wait a short random time (100-300ms) to simulate human reaction
             const reactionDelay = Math.random() * 200 + 400;
@@ -1757,7 +1737,7 @@ function nextStimulus() {
     }
 
     // Live update graph if it's showing
-    if (graphShowing) {
+    if (IS_LOCAL_HOST && graphShowing) {
         updateGraphDisplay();
     }
 
@@ -1923,7 +1903,7 @@ function handleMatch() {
         updateStatsDisplay();
 
         // Live update graph if it's showing
-        if (graphShowing) {
+        if (IS_LOCAL_HOST && graphShowing) {
             updateGraphDisplay();
         }
     }
@@ -2030,8 +2010,9 @@ function startGame() {
     const currentPercent = (currentProgress / CHUNK_SECONDS) * 100;
     updateSegmentedProgressBar(currentPercent);
 
+
     // Hide color preview if showing
-    if (colorsShowing) {
+    if (IS_LOCAL_HOST && colorsShowing) {
         hideAllColors();
     }
 
@@ -2060,9 +2041,6 @@ function startGame() {
     // Start timer (game is running during animation)
     startDailyTimer();
 
-    // Start focus mode tracking (activates after 1 minute of play)
-    startFocusModeTracking();
-
     clearGrid();
 
     // Trigger grid bounce animation (game is already in playing mode)
@@ -2084,7 +2062,7 @@ function startGame() {
 function scheduleNextStimulus() {
     if (!isRunning) return;
 
-    const delay = getRandomizedInterval() / speedMultiplier;
+    const delay = IS_LOCAL_HOST ? getRandomizedInterval() / speedMultiplier : getRandomizedInterval();
     intervalId = setTimeout(() => {
         if (!isRunning) return;
         nextStimulus();
@@ -2100,13 +2078,12 @@ function stopGame(autoEnded = false) {
 
     stopDailyTimer();
 
-    // Stop focus mode and restore normal visuals
-    stopFocusMode();
-
     isRunning = false;
-    speedMultiplier = 1; // reset speed to normal
-    doubleSpeedBtn.textContent = "Speed: 2x";
-    doubleSpeedBtn.style.fontWeight = "normal";
+    if (IS_LOCAL_HOST) {
+        speedMultiplier = 1;
+        doubleSpeedBtn.textContent = "Speed: 2x";
+        doubleSpeedBtn.style.fontWeight = "normal";
+    }
 
     // Remove segmented progress bar
     removeSegmentedProgressBar();
@@ -2238,7 +2215,9 @@ function stopGame(autoEnded = false) {
 }
 
 function updateRoundDisplay() {
-    roundDisplay.textContent = `Round: ${rounds}`;
+    if (IS_LOCAL_HOST) {
+        roundDisplay.textContent = `Round: ${rounds}`;
+    }
     updateRoundProgressCircle();
 }
 
@@ -2499,10 +2478,90 @@ function stopLockedButtonVibration() {
     });
 }
 
+// ------------------ Keyboard Controls ------------------
+
+document.addEventListener("keydown", (e) => {
+    if (e.code === "Space") {
+        e.preventDefault();
+        if (!isRunning) startGame();
+        else handleMatch();
+    }
+
+    if (e.code === "Escape") {
+        e.preventDefault();
+        stopGame(false);
+    }
+});
+
+// Buttons also work
+matchBtn.addEventListener("click", handleMatch);
+startBtn.addEventListener("click", startGame);
+stopBtn.addEventListener("click", () => stopGame(false));
+
+
+// ------------------ Daily Playtime Popup ------------------
+
+const playtimePopup = document.getElementById("playtimePopup");
+let playtimePopupTimeout = null;
+
+function showPlaytimePopup() {
+    // Only show when NOT in playing phase
+    if (isRunning) return;
+
+    // Clear any existing timeout
+    if (playtimePopupTimeout) {
+        clearTimeout(playtimePopupTimeout);
+    }
+
+    // Show the popup
+    playtimePopup.classList.add("visible");
+
+    // Hide after x seconds
+    playtimePopupTimeout = setTimeout(() => {
+        playtimePopup.classList.remove("visible");
+    }, 1618);
+}
+
+// Click handler for progress bar
+timerProgress.addEventListener("click", showPlaytimePopup);
+
+// Also support touch events for mobile
+timerProgress.addEventListener("touchend", (e) => {
+    e.preventDefault(); // prevent double firing with click
+    showPlaytimePopup();
+});
+
+
+// ------------------ Tab Focus Detection (Refresh after 5min absence) ------------------
+
+let tabHiddenTimestamp = null;
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+        // Tab is being hidden, record timestamp
+        tabHiddenTimestamp = Date.now();
+    } else {
+        // Tab is visible again
+        if (tabHiddenTimestamp) {
+            const awayDuration = Date.now() - tabHiddenTimestamp;
+            tabHiddenTimestamp = null;
+
+            // If user was away 5+ minutes and game is NOT running, refresh page
+            if (awayDuration >= AWAY_THRESHOLD && !isRunning) {
+                console.log(`User returned after ${Math.round(awayDuration / 1000 / 60)} min, refreshing page`);
+                window.location.reload();
+            }
+        }
+    }
+});
+
+// ------------------ NOTE: all code below is for debugging only ------------------
 
 // ------------------ Stats Display ------------------
 
 function updateStatsDisplay() {
+    if (!IS_LOCAL_HOST) return;
+
     const statsEl = document.getElementById("adaptiveStats");
     if (!statsEl) {
         return;
@@ -2659,771 +2718,539 @@ function updateStatsDisplay() {
     statsEl.innerHTML = display;
 }
 
-// ------------------ Color Preview Debug ------------------
+// Regenerate minute positions (for debug button)
+function regenerateMinutePositions() {
+    minutePositions = generateFibonacciMinutePositions();
+    saveMinutePositions();
+}
 
+// Variables needed for debugging
+let autopilotEnabled = false; // autopilot mode for debugging
+let statsVisible = true; // stats display visibility (default: true)
 let colorsShowing = false;
+let historyShowing = false;
+let graphShowing = false;
 
-function showAllColors() {
-    if (colorsShowing) {
-        hideAllColors();
-        return;
-    }
+// ------------------ start IS_LOCAL_HOST debug block ------------------
+if (IS_LOCAL_HOST) {
 
-    colorsShowing = true;
-    showColorsBtn.textContent = "Hide Colors";
+    // ------------------ Color Preview Debug ------------------
 
-    const cells = getPlayableCells();
-
-    // Fill grid cells with colors (we have 8 cells and 8 colors)
-    cells.forEach((cell, index) => {
-        if (index < COLORS.length) {
-            cell.style.background = COLORS[index].color;
-        }
-    });
-
-    // If there are more colors than cells, add them to the extra container
-    if (COLORS.length > cells.length) {
-        for (let i = cells.length; i < COLORS.length; i++) {
-            const extraCell = document.createElement("div");
-            extraCell.className = "extra-color-cell";
-            extraCell.style.width = "95px";
-            extraCell.style.height = "95px";
-            extraCell.style.background = COLORS[i].color;
-            extraCell.style.borderRadius = "8px";
-            extraCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
-            extraColorsContainer.appendChild(extraCell);
-        }
-    }
-}
-
-function hideAllColors() {
-    colorsShowing = false;
-    showColorsBtn.textContent = "Show Colors";
-
-    const cells = getPlayableCells();
-    cells.forEach(cell => {
-        cell.style.background = "transparent";
-    });
-
-    // Clear extra colors
-    extraColorsContainer.innerHTML = "";
-}
-
-// ------------------ Keyboard Controls ------------------
-
-document.addEventListener("keydown", (e) => {
-    if (e.code === "Space") {
-        e.preventDefault();
-        if (!isRunning) startGame();
-        else handleMatch();
-    }
-
-    if (e.code === "Escape") {
-        e.preventDefault();
-        stopGame(false);
-    }
-});
-
-// Buttons also work
-matchBtn.addEventListener("click", handleMatch);
-startBtn.addEventListener("click", startGame);
-stopBtn.addEventListener("click", () => stopGame(false));
-showColorsBtn.addEventListener("click", showAllColors);
-
-// Toggle speed function
-function toggleSpeed() {
-    if (!isRunning) return; // only works during gameplay
-
-    if (speedMultiplier === 1) {
-        speedMultiplier = 2;
-        doubleSpeedBtn.textContent = "Speed: 2x (Active)";
-        doubleSpeedBtn.style.fontWeight = "bold";
-    } else {
-        speedMultiplier = 1;
-        doubleSpeedBtn.textContent = "Speed: 2x";
-        doubleSpeedBtn.style.fontWeight = "normal";
-    }
-
-    // Restart the interval with new speed
-    if (intervalId) {
-        clearTimeout(intervalId);
-        scheduleNextStimulus();
-    }
-}
-
-// Debug buttons
-const toggleStatsBtn = document.getElementById("toggleStatsBtn");
-const clearStorageBtn = document.getElementById("clearStorageBtn");
-const debugSetTimeBtn = document.getElementById("debugSetTimeBtn");
-const regenIndicatorsBtn = document.getElementById("regenIndicatorsBtn");
-const autopilotBtn = document.getElementById("autopilotBtn");
-
-clearStorageBtn.addEventListener("click", () => {
-    localStorage.clear();
-    window.location.reload(true);
-});
-
-debugSetTimeBtn.addEventListener("click", () => {
-    const today = formatDateLocal(new Date());
-
-    // Set to 18 minutes (1080 seconds)
-    elapsedSeconds = 1080;
-    pendingPerformance.playTime = elapsedSeconds;
-    savePerformanceToDisk();
-
-    // Update UI
-    const currentProgress = elapsedSeconds % CHUNK_SECONDS;
-    const initialPercent = (currentProgress / CHUNK_SECONDS) * 100;
-    timerFill.style.width = `${initialPercent}%`;
-    timerFill.style.background = "#57b9c6";
-
-    // Recreate indicators
-    minuteIndicators.forEach(m => m.remove());
-    minuteIndicators = [];
-    createMinuteIndicators();
-
-    // Update button colors
-    updateNBackButtons();
-
-    alert("Set to 18 minutes with demo accuracies!");
-});
-
-regenIndicatorsBtn.addEventListener("click", () => {
-    // Regenerate Fibonacci positions
-    regenerateMinutePositions();
-
-    // Remove old indicators
-    minuteIndicators.forEach(m => m.remove());
-    minuteIndicators = [];
-
-    // Recreate indicators with new positions
-    createMinuteIndicators();
-
-    // Show confirmation
-    const positions = minutePositions.map(p => Math.round(p * 10) / 10).join(", ");
-    alert(`Indicators regenerated at: ${positions} minutes`);
-});
-
-doubleSpeedBtn.addEventListener("click", toggleSpeed);
-
-// Toggle autopilot function
-function toggleAutopilot() {
-    autopilotEnabled = !autopilotEnabled;
-
-    if (autopilotEnabled) {
-        autopilotBtn.textContent = "Autopilot: On";
-        autopilotBtn.style.fontWeight = "bold";
-        autopilotBtn.style.background = "#4caf50";
-        autopilotBtn.style.color = "white";
-    } else {
-        autopilotBtn.textContent = "Autopilot: Off";
-        autopilotBtn.style.fontWeight = "normal";
-        autopilotBtn.style.background = "";
-        autopilotBtn.style.color = "";
-    }
-}
-
-autopilotBtn.addEventListener("click", toggleAutopilot);
-
-// Toggle stats display function
-function toggleStatsDisplay() {
-    const adaptiveStats = document.getElementById("adaptiveStats");
-    statsVisible = !statsVisible;
-
-    if (statsVisible) {
-        adaptiveStats.style.display = "inline-block";
-        toggleStatsBtn.textContent = "Hide Stats";
-    } else {
-        adaptiveStats.style.display = "none";
-        toggleStatsBtn.textContent = "Show Stats";
-    }
-
-    localStorage.setItem("statsVisible", statsVisible.toString());
-}
-
-// Load stats visibility preference from localStorage
-function loadStatsVisibility() {
-    const savedVisibility = localStorage.getItem("statsVisible");
-    if (savedVisibility !== null) {
-        statsVisible = savedVisibility === "true";
-    } else {
-        statsVisible = true; // default: visible
-    }
-
-    const adaptiveStats = document.getElementById("adaptiveStats");
-    if (statsVisible) {
-        adaptiveStats.style.display = "inline-block";
-        toggleStatsBtn.textContent = "Hide Stats";
-    } else {
-        adaptiveStats.style.display = "none";
-        toggleStatsBtn.textContent = "Show Stats";
-    }
-}
-
-// Load stats visibility on page load
-loadStatsVisibility();
-
-toggleStatsBtn.addEventListener("click", toggleStatsDisplay);
-
-// Change Layout debug button (triggers a new grid layout)
-const changeLayoutBtn = document.getElementById("changeLayoutBtn");
-changeLayoutBtn.addEventListener("click", () => {
-    deactivatedCells = selectDeactivatedCells();
-    applyDeactivatedCells();
-    console.log(`Debug: Changed layout, ${deactivatedCells.length} cells hidden [${deactivatedCells.join(', ') || 'none'}]`);
-});
-
-// Place Color debug button (places one random color in one random available cell)
-const placeColorBtn = document.getElementById("placeColorBtn");
-let debugPlacedCell = null;
-
-placeColorBtn.addEventListener("click", () => {
-    // Clear previously placed cell
-    if (debugPlacedCell) {
-        debugPlacedCell.style.background = "transparent";
-        debugPlacedCell.style.outline = "none";
-    }
-
-    const cells = getPlayableCells();
-    // Filter out deactivated cells
-    const overlayGrid = document.getElementById("overlay-grid");
-    const availableCells = cells.filter((cell) => {
-        const actualIndex = Array.from(overlayGrid.children).indexOf(cell);
-        return !deactivatedCells.includes(actualIndex);
-    });
-
-    if (availableCells.length === 0) {
-        console.log("Debug: No available cells to place color");
-        debugPlacedCell = null;
-        return;
-    }
-
-    // Pick a random available cell
-    const randomCellIndex = Math.floor(Math.random() * availableCells.length);
-    const randomCell = availableCells[randomCellIndex];
-
-    // Pick a random color
-    const randomColorIndex = Math.floor(Math.random() * COLORS.length);
-    const randomColor = COLORS[randomColorIndex];
-
-    // Place the color
-    randomCell.style.background = randomColor.color;
-    randomCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
-    debugPlacedCell = randomCell;
-
-    console.log(`Debug: Placed ${randomColor.name} (${randomColor.color}) in cell`);
-});
-
-// Fill Heatmap debug button (fills heatmap with various playtimes to test colors)
-const fillHeatmapBtn = document.getElementById("fillHeatmapBtn");
-if (fillHeatmapBtn) {
-    fillHeatmapBtn.addEventListener("click", () => {
-        const today = new Date();
-
-        // Last 7 days: force level-4 streak (20+ min each)
-        for (let i = 0; i <= 7; i++) {
-            const date = new Date(today);
-            date.setDate(date.getDate() - i);
-            const dateStr = formatDateLocal(date);
-
-            const existing = performanceHistory.get(dateStr) || {
-                n: 2, hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0, sumLoad: 0, maxLoad: 0, playTime: 0
-            };
-            existing.playTime = 1200 + Math.floor(Math.random() * 600); // 20-30 min
-            performanceHistory.set(dateStr, existing);
+    function showAllColors() {
+        if (colorsShowing) {
+            hideAllColors();
+            return;
         }
 
-        // Also set today's elapsed time to trigger streak for current day
-        elapsedSeconds = 1200 + Math.floor(Math.random() * 600);
+        colorsShowing = true;
+        showColorsBtn.textContent = "Hide Colors";
+
+        const cells = getPlayableCells();
+
+        // Fill grid cells with colors (we have 8 cells and 8 colors)
+        cells.forEach((cell, index) => {
+            if (index < COLORS.length) {
+                cell.style.background = COLORS[index].color;
+            }
+        });
+
+        // If there are more colors than cells, add them to the extra container
+        if (COLORS.length > cells.length) {
+            for (let i = cells.length; i < COLORS.length; i++) {
+                const extraCell = document.createElement("div");
+                extraCell.className = "extra-color-cell";
+                extraCell.style.width = "95px";
+                extraCell.style.height = "95px";
+                extraCell.style.background = COLORS[i].color;
+                extraCell.style.borderRadius = "8px";
+                extraCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
+                extraColorsContainer.appendChild(extraCell);
+            }
+        }
+    }
+
+    function hideAllColors() {
+        colorsShowing = false;
+        showColorsBtn.textContent = "Show Colors";
+
+        const cells = getPlayableCells();
+        cells.forEach(cell => {
+            cell.style.background = "transparent";
+        });
+
+        // Clear extra colors
+        extraColorsContainer.innerHTML = "";
+    }
+
+    showColorsBtn.addEventListener("click", showAllColors);
+
+    // Toggle speed function
+    function toggleSpeed() {
+        if (!isRunning) return; // only works during gameplay
+
+        if (speedMultiplier === 1) {
+            speedMultiplier = 2;
+            doubleSpeedBtn.textContent = "Speed: 2x (Active)";
+            doubleSpeedBtn.style.fontWeight = "bold";
+        } else {
+            speedMultiplier = 1;
+            doubleSpeedBtn.textContent = "Speed: 2x";
+            doubleSpeedBtn.style.fontWeight = "normal";
+        }
+
+        // Restart the interval with new speed
+        if (intervalId) {
+            clearTimeout(intervalId);
+            scheduleNextStimulus();
+        }
+    }
+
+    // Debug buttons
+    const toggleStatsBtn = document.getElementById("toggleStatsBtn");
+    const clearStorageBtn = document.getElementById("clearStorageBtn");
+    const debugSetTimeBtn = document.getElementById("debugSetTimeBtn");
+    const regenIndicatorsBtn = document.getElementById("regenIndicatorsBtn");
+    const autopilotBtn = document.getElementById("autopilotBtn");
+
+    clearStorageBtn.addEventListener("click", () => {
+        localStorage.clear();
+        window.location.reload(true);
+    });
+
+    debugSetTimeBtn.addEventListener("click", () => {
+        const today = formatDateLocal(new Date());
+
+        // Set to 18 minutes (1080 seconds)
+        elapsedSeconds = 1080;
         pendingPerformance.playTime = elapsedSeconds;
         savePerformanceToDisk();
 
-        // Fill remaining days (8-90) with random playtimes
-        for (let i = 8; i <= 90; i++) {
-            const date = new Date(today);
-            date.setDate(date.getDate() - i);
-            const dateStr = formatDateLocal(date);
+        // Update UI
+        const currentProgress = elapsedSeconds % CHUNK_SECONDS;
+        const initialPercent = (currentProgress / CHUNK_SECONDS) * 100;
+        timerFill.style.width = `${initialPercent}%`;
+        timerFill.style.background = "#57b9c6";
 
-            // Random level distribution
-            const rand = Math.random();
-            let playTime;
-            if (rand < 0.15) {
-                playTime = 0; // level 0: no play
-            } else if (rand < 0.35) {
-                playTime = 30 + Math.floor(Math.random() * 250); // level 1: 30s to 280s
-            } else if (rand < 0.55) {
-                playTime = 300 + Math.floor(Math.random() * 300); // level 2: 5 to 10 min
-            } else if (rand < 0.75) {
-                playTime = 600 + Math.floor(Math.random() * 600); // level 3: 10 to 20 min
-            } else {
-                playTime = 1200 + Math.floor(Math.random() * 600); // level 4: 20+ min
-            }
+        // Recreate indicators
+        minuteIndicators.forEach(m => m.remove());
+        minuteIndicators = [];
+        createMinuteIndicators();
 
-            const existing = performanceHistory.get(dateStr) || {
-                n: 2, hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0, sumLoad: 0, maxLoad: 0, playTime: 0
-            };
-            existing.playTime = playTime;
-            performanceHistory.set(dateStr, existing);
-        }
+        // Update button colors
+        updateNBackButtons();
 
-        // Save and re-render
-        savePerformanceToDisk();
-        renderActivityHeatmap();
-        showBanner(false);
-
-        console.log("Debug: Filled heatmap with 7-day streak + random playtimes");
-    });
-}
-
-// Show or hide debug tools section based on DEBUG flag
-const debugSection = document.getElementById("debugSection");
-if (debugSection) {
-    debugSection.style.display = IS_LOCAL_HOST ? "block" : "none";
-}
-
-// ------------------ Debug: History Display ------------------
-
-let historyShowing = false;
-const showHistoryBtn = document.getElementById("showHistoryBtn");
-const historyContainer = document.getElementById("historyContainer");
-const historyDisplay = document.getElementById("historyDisplay");
-
-function updateHistoryDisplay() {
-    // Read last 10 trials from trialHistory (single source of truth)
-    const roundTrials = getCurrentRoundTrials();
-    const last10 = roundTrials.slice(-10);
-
-    if (last10.length === 0) {
-        historyDisplay.innerHTML = '<p style="color: #999;">No trials yet. Start a game to see history.</p>';
-        return;
-    }
-
-    let html = '<div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; min-height: 170px;">';
-
-    last10.forEach((trial) => {
-        const colorEntry = COLORS.find(c => c.name === trial.color);
-        const colorHex = colorEntry ? colorEntry.color : '#999';
-        const isMatch = trial.wasMatch;
-        const userClicked = trial.userClicked;
-        const isError = (userClicked && !isMatch) || (!userClicked && isMatch);
-
-        // Background color based on status
-        let bgColor = '#fff';
-        if (isError) {
-            bgColor = '#ffebee'; // light red for errors
-        } else if (isMatch && userClicked) {
-            bgColor = '#e8f5e9'; // light green for correct matches
-        }
-
-        html += `<div style="background: ${bgColor}; padding: 8px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 70px;">`;
-
-        // Color swatch and name
-        html += `<div style="width: 26px; height: 26px; background: ${colorHex}; border-radius: 3px; border: 2px solid #ccc;"></div>`;
-        html += `<div style="font-size: 10px; font-weight: 500;">${trial.color}</div>`;
-
-        // Badges (compact icons/symbols)
-        html += `<div style="display: flex; gap: 3px; flex-wrap: wrap; justify-content: center;">`;
-
-        if (isMatch) {
-            html += `<span style="background: #4caf50; color: white; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">M</span>`;
-        }
-
-        if (isError) {
-            const errorSymbol = userClicked && !isMatch ? '✗' : '!';
-            html += `<span style="background: #f44336; color: white; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">${errorSymbol}</span>`;
-        }
-
-        if (userClicked) {
-            html += `<span style="background: #ffeb3b; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">✓</span>`;
-        }
-
-        html += `</div>`;
-        html += `</div>`;
+        alert("Set to 18 minutes with demo accuracies!");
     });
 
-    html += '</div>';
-    historyDisplay.innerHTML = html;
-}
+    regenIndicatorsBtn.addEventListener("click", () => {
+        // Regenerate Fibonacci positions
+        regenerateMinutePositions();
 
-function showTrialHistory() {
-    if (historyShowing) {
-        hideTrialHistory();
-        return;
-    }
+        // Remove old indicators
+        minuteIndicators.forEach(m => m.remove());
+        minuteIndicators = [];
 
-    historyShowing = true;
-    showHistoryBtn.textContent = "Hide History";
-    historyContainer.style.display = "block";
-    updateHistoryDisplay();
-}
+        // Recreate indicators with new positions
+        createMinuteIndicators();
 
-function hideTrialHistory() {
-    historyShowing = false;
-    showHistoryBtn.textContent = "Show History";
-    historyContainer.style.display = "none";
-}
+        // Show confirmation
+        const positions = minutePositions.map(p => Math.round(p * 10) / 10).join(", ");
+        alert(`Indicators regenerated at: ${positions} minutes`);
+    });
 
-showHistoryBtn.addEventListener("click", showTrialHistory);
+    doubleSpeedBtn.addEventListener("click", toggleSpeed);
 
-// ------------------ Debug: Baseline Graph Display ------------------
+    // Toggle autopilot function
+    function toggleAutopilot() {
+        autopilotEnabled = !autopilotEnabled;
 
-let graphShowing = false;
-const showGraphBtn = document.getElementById("showGraphBtn");
-const graphContainer = document.getElementById("graphContainer");
-const graphDisplay = document.getElementById("graphDisplay");
-
-function updateGraphDisplay() {
-    const trials = getCurrentRoundTrials();
-    if (trials.length === 0) {
-        graphDisplay.innerHTML = '<p style="color: #999; text-align: center; padding-top: 130px;">No data yet. Start a game to see the graph.</p>';
-        return;
-    }
-
-    const width = graphDisplay.offsetWidth;
-    const height = 300;
-    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
-    const graphWidth = width - padding.left - padding.right;
-    const graphHeight = height - padding.top - padding.bottom;
-
-    // Get data range (maxUniqueColors = n + 1)
-    const maxUniqueColors = n + 1;
-    const minLoad = 1;
-    const trialCount = trials.length;
-
-    // Create SVG
-    let svg = `<svg width="${width}" height="${height}" style="font-family: Arial, sans-serif; font-size: 11px;">`;
-
-    // Background
-    svg += `<rect x="${padding.left}" y="${padding.top}" width="${graphWidth}" height="${graphHeight}" fill="rgba(240, 240, 240, 0.3)"/>`;
-
-    // Y-axis labels and grid lines (from minLoad to maxUniqueColors)
-    for (let i = minLoad; i <= maxUniqueColors; i++) {
-        const y = padding.top + graphHeight - ((i - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
-        svg += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="#e0e0e0" stroke-width="1"/>`;
-        svg += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" fill="#666">${i}</text>`;
-    }
-
-    // Target line (maxUniqueColors)
-    const targetY = padding.top;
-    svg += `<line x1="${padding.left}" y1="${targetY}" x2="${width - padding.right}" y2="${targetY}" stroke="#999" stroke-width="2" stroke-dasharray="5,5"/>`;
-    svg += `<text x="${width - padding.right + 5}" y="${targetY + 4}" fill="#666" font-size="10px">Max</text>`;
-
-    // Current load line
-    let pathData = '';
-    trials.forEach((t, i) => {
-        const x = padding.left + (i / Math.max(trialCount - 1, 1)) * graphWidth;
-        const y = padding.top + graphHeight - ((t.currentLoad - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
-
-        if (i === 0) {
-            pathData += `M ${x} ${y}`;
+        if (autopilotEnabled) {
+            autopilotBtn.textContent = "Autopilot: On";
+            autopilotBtn.style.fontWeight = "bold";
+            autopilotBtn.style.background = "#4caf50";
+            autopilotBtn.style.color = "white";
         } else {
-            pathData += ` L ${x} ${y}`;
+            autopilotBtn.textContent = "Autopilot: Off";
+            autopilotBtn.style.fontWeight = "normal";
+            autopilotBtn.style.background = "";
+            autopilotBtn.style.color = "";
+        }
+    }
+
+    autopilotBtn.addEventListener("click", toggleAutopilot);
+
+    // Toggle stats display function
+    function toggleStatsDisplay() {
+        const adaptiveStats = document.getElementById("adaptiveStats");
+        statsVisible = !statsVisible;
+
+        if (statsVisible) {
+            adaptiveStats.style.display = "inline-block";
+            toggleStatsBtn.textContent = "Hide Stats";
+        } else {
+            adaptiveStats.style.display = "none";
+            toggleStatsBtn.textContent = "Show Stats";
+        }
+
+        localStorage.setItem("statsVisible", statsVisible.toString());
+    }
+
+    // Load stats visibility preference from localStorage
+    function loadStatsVisibility() {
+        const savedVisibility = localStorage.getItem("statsVisible");
+        if (savedVisibility !== null) {
+            statsVisible = savedVisibility === "true";
+        } else {
+            statsVisible = true; // default: visible
+        }
+
+        const adaptiveStats = document.getElementById("adaptiveStats");
+        if (statsVisible) {
+            adaptiveStats.style.display = "inline-block";
+            toggleStatsBtn.textContent = "Hide Stats";
+        } else {
+            adaptiveStats.style.display = "none";
+            toggleStatsBtn.textContent = "Show Stats";
+        }
+    }
+
+    // Load stats visibility on page load
+    loadStatsVisibility();
+
+    toggleStatsBtn.addEventListener("click", toggleStatsDisplay);
+
+    // Change Layout debug button (triggers a new grid layout)
+    const changeLayoutBtn = document.getElementById("changeLayoutBtn");
+    changeLayoutBtn.addEventListener("click", () => {
+        deactivatedCells = selectDeactivatedCells();
+        applyDeactivatedCells();
+        console.log(`Debug: Changed layout, ${deactivatedCells.length} cells hidden [${deactivatedCells.join(', ') || 'none'}]`);
+    });
+
+    // Place Color debug button (places one random color in one random available cell)
+    const placeColorBtn = document.getElementById("placeColorBtn");
+    let debugPlacedCell = null;
+
+    placeColorBtn.addEventListener("click", () => {
+        // Clear previously placed cell
+        if (debugPlacedCell) {
+            debugPlacedCell.style.background = "transparent";
+            debugPlacedCell.style.outline = "none";
+        }
+
+        const cells = getPlayableCells();
+        // Filter out deactivated cells
+        const overlayGrid = document.getElementById("overlay-grid");
+        const availableCells = cells.filter((cell) => {
+            const actualIndex = Array.from(overlayGrid.children).indexOf(cell);
+            return !deactivatedCells.includes(actualIndex);
+        });
+
+        if (availableCells.length === 0) {
+            console.log("Debug: No available cells to place color");
+            debugPlacedCell = null;
+            return;
+        }
+
+        // Pick a random available cell
+        const randomCellIndex = Math.floor(Math.random() * availableCells.length);
+        const randomCell = availableCells[randomCellIndex];
+
+        // Pick a random color
+        const randomColorIndex = Math.floor(Math.random() * COLORS.length);
+        const randomColor = COLORS[randomColorIndex];
+
+        // Place the color
+        randomCell.style.background = randomColor.color;
+        randomCell.style.outline = "2px solid rgba(0, 0, 0, 0.15)";
+        debugPlacedCell = randomCell;
+
+        console.log(`Debug: Placed ${randomColor.name} (${randomColor.color}) in cell`);
+    });
+
+    // Fill Heatmap debug button (fills heatmap with various playtimes to test colors)
+    const fillHeatmapBtn = document.getElementById("fillHeatmapBtn");
+    if (fillHeatmapBtn) {
+        fillHeatmapBtn.addEventListener("click", () => {
+            const today = new Date();
+
+            // Last 7 days: force level-4 streak (20+ min each)
+            for (let i = 0; i <= 7; i++) {
+                const date = new Date(today);
+                date.setDate(date.getDate() - i);
+                const dateStr = formatDateLocal(date);
+
+                const existing = performanceHistory.get(dateStr) || {
+                    n: 2, hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0, sumLoad: 0, maxLoad: 0, playTime: 0
+                };
+                existing.playTime = 1200 + Math.floor(Math.random() * 600); // 20-30 min
+                performanceHistory.set(dateStr, existing);
+            }
+
+            // Also set today's elapsed time to trigger streak for current day
+            elapsedSeconds = 1200 + Math.floor(Math.random() * 600);
+            pendingPerformance.playTime = elapsedSeconds;
+            savePerformanceToDisk();
+
+            // Fill remaining days (8-90) with random playtimes
+            for (let i = 8; i <= 90; i++) {
+                const date = new Date(today);
+                date.setDate(date.getDate() - i);
+                const dateStr = formatDateLocal(date);
+
+                // Random level distribution
+                const rand = Math.random();
+                let playTime;
+                if (rand < 0.15) {
+                    playTime = 0; // level 0: no play
+                } else if (rand < 0.35) {
+                    playTime = 30 + Math.floor(Math.random() * 250); // level 1: 30s to 280s
+                } else if (rand < 0.55) {
+                    playTime = 300 + Math.floor(Math.random() * 300); // level 2: 5 to 10 min
+                } else if (rand < 0.75) {
+                    playTime = 600 + Math.floor(Math.random() * 600); // level 3: 10 to 20 min
+                } else {
+                    playTime = 1200 + Math.floor(Math.random() * 600); // level 4: 20+ min
+                }
+
+                const existing = performanceHistory.get(dateStr) || {
+                    n: 2, hits: 0, misses: 0, falseAlarms: 0, correctRejections: 0, sumLoad: 0, maxLoad: 0, playTime: 0
+                };
+                existing.playTime = playTime;
+                performanceHistory.set(dateStr, existing);
+            }
+
+            // Save and re-render
+            savePerformanceToDisk();
+            renderActivityHeatmap();
+            showBanner(false);
+
+            console.log("Debug: Filled heatmap with 7-day streak + random playtimes");
+        });
+    }
+
+    // Show or hide debug tools section based on DEBUG flag
+    const debugSection = document.getElementById("debugSection");
+    if (debugSection) {
+        debugSection.style.display = IS_LOCAL_HOST ? "block" : "none";
+    }
+
+    // ------------------ Debug: History Display ------------------
+
+    const showHistoryBtn = document.getElementById("showHistoryBtn");
+    const historyContainer = document.getElementById("historyContainer");
+    const historyDisplay = document.getElementById("historyDisplay");
+
+    function updateHistoryDisplay() {
+        if (!IS_LOCAL_HOST) return;
+
+        // Read last 10 trials from trialHistory (single source of truth)
+        const roundTrials = getCurrentRoundTrials();
+        const last10 = roundTrials.slice(-10);
+
+        if (last10.length === 0) {
+            historyDisplay.innerHTML = '<p style="color: #999;">No trials yet. Start a game to see history.</p>';
+            return;
+        }
+
+        let html = '<div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; min-height: 170px;">';
+
+        last10.forEach((trial) => {
+            const colorEntry = COLORS.find(c => c.name === trial.color);
+            const colorHex = colorEntry ? colorEntry.color : '#999';
+            const isMatch = trial.wasMatch;
+            const userClicked = trial.userClicked;
+            const isError = (userClicked && !isMatch) || (!userClicked && isMatch);
+
+            // Background color based on status
+            let bgColor = '#fff';
+            if (isError) {
+                bgColor = '#ffebee'; // light red for errors
+            } else if (isMatch && userClicked) {
+                bgColor = '#e8f5e9'; // light green for correct matches
+            }
+
+            html += `<div style="background: ${bgColor}; padding: 8px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 70px;">`;
+
+            // Color swatch and name
+            html += `<div style="width: 26px; height: 26px; background: ${colorHex}; border-radius: 3px; border: 2px solid #ccc;"></div>`;
+            html += `<div style="font-size: 10px; font-weight: 500;">${trial.color}</div>`;
+
+            // Badges (compact icons/symbols)
+            html += `<div style="display: flex; gap: 3px; flex-wrap: wrap; justify-content: center;">`;
+
+            if (isMatch) {
+                html += `<span style="background: #4caf50; color: white; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">M</span>`;
+            }
+
+            if (isError) {
+                const errorSymbol = userClicked && !isMatch ? '✗' : '!';
+                html += `<span style="background: #f44336; color: white; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">${errorSymbol}</span>`;
+            }
+
+            if (userClicked) {
+                html += `<span style="background: #ffeb3b; padding: 1px 4px; border-radius: 2px; font-size: 9px; font-weight: bold;">✓</span>`;
+            }
+
+            html += `</div>`;
+            html += `</div>`;
+        });
+
+        html += '</div>';
+        historyDisplay.innerHTML = html;
+    }
+
+    function showTrialHistory() {
+        if (historyShowing) {
+            hideTrialHistory();
+            return;
+        }
+
+        historyShowing = true;
+        showHistoryBtn.textContent = "Hide History";
+        historyContainer.style.display = "block";
+        updateHistoryDisplay();
+    }
+
+    function hideTrialHistory() {
+        historyShowing = false;
+        showHistoryBtn.textContent = "Show History";
+        historyContainer.style.display = "none";
+    }
+
+    showHistoryBtn.addEventListener("click", showTrialHistory);
+
+    // ------------------ Debug: Baseline Graph Display ------------------
+
+    const showGraphBtn = document.getElementById("showGraphBtn");
+    const graphContainer = document.getElementById("graphContainer");
+    const graphDisplay = document.getElementById("graphDisplay");
+
+    function updateGraphDisplay() {
+        if (!IS_LOCAL_HOST) return;
+
+        const trials = getCurrentRoundTrials();
+        if (trials.length === 0) {
+            graphDisplay.innerHTML = '<p style="color: #999; text-align: center; padding-top: 130px;">No data yet. Start a game to see the graph.</p>';
+            return;
+        }
+
+        const width = graphDisplay.offsetWidth;
+        const height = 300;
+        const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+        const graphWidth = width - padding.left - padding.right;
+        const graphHeight = height - padding.top - padding.bottom;
+
+        // Get data range (maxUniqueColors = n + 1)
+        const maxUniqueColors = n + 1;
+        const minLoad = 1;
+        const trialCount = trials.length;
+
+        // Create SVG
+        let svg = `<svg width="${width}" height="${height}" style="font-family: Arial, sans-serif; font-size: 11px;">`;
+
+        // Background
+        svg += `<rect x="${padding.left}" y="${padding.top}" width="${graphWidth}" height="${graphHeight}" fill="rgba(240, 240, 240, 0.3)"/>`;
+
+        // Y-axis labels and grid lines (from minLoad to maxUniqueColors)
+        for (let i = minLoad; i <= maxUniqueColors; i++) {
+            const y = padding.top + graphHeight - ((i - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
+            svg += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="#e0e0e0" stroke-width="1"/>`;
+            svg += `<text x="${padding.left - 5}" y="${y + 4}" text-anchor="end" fill="#666">${i}</text>`;
+        }
+
+        // Target line (maxUniqueColors)
+        const targetY = padding.top;
+        svg += `<line x1="${padding.left}" y1="${targetY}" x2="${width - padding.right}" y2="${targetY}" stroke="#999" stroke-width="2" stroke-dasharray="5,5"/>`;
+        svg += `<text x="${width - padding.right + 5}" y="${targetY + 4}" fill="#666" font-size="10px">Max</text>`;
+
+        // Current load line
+        let pathData = '';
+        trials.forEach((t, i) => {
+            const x = padding.left + (i / Math.max(trialCount - 1, 1)) * graphWidth;
+            const y = padding.top + graphHeight - ((t.currentLoad - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
+
+            if (i === 0) {
+                pathData += `M ${x} ${y}`;
+            } else {
+                pathData += ` L ${x} ${y}`;
+            }
+        });
+
+        svg += `<path d="${pathData}" fill="none" stroke="#2196F3" stroke-width="2"/>`;
+
+        // Trial outcome markers (dots)
+        // Green = correct match click, Red = error (missed match or false positive)
+        for (let i = 0; i < trialCount; i++) {
+            const t = trials[i];
+
+            // Skip if outcome not yet recorded
+            if (t.wasMatch === null || t.userClicked === null) continue;
+
+            const x = padding.left + (i / Math.max(trialCount - 1, 1)) * graphWidth;
+            const y = padding.top + graphHeight - ((t.currentLoad - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
+
+            if (t.wasMatch && t.userClicked) {
+                svg += `<circle cx="${x}" cy="${y}" r="6" fill="#4caf50" stroke="white" stroke-width="1.5" opacity="0.9"/>`;
+            } else if ((t.wasMatch && !t.userClicked) || (!t.wasMatch && t.userClicked)) {
+                svg += `<circle cx="${x}" cy="${y}" r="6" fill="#f44336" stroke="white" stroke-width="1.5" opacity="0.9"/>`;
+            }
+        }
+
+        // X-axis
+        svg += `<line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="#666" stroke-width="1"/>`;
+
+        // X-axis label
+        svg += `<text x="${width / 2}" y="${height - 5}" text-anchor="middle" fill="#666">Trials</text>`;
+
+        // Y-axis
+        svg += `<line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" stroke="#666" stroke-width="1"/>`;
+
+        // Y-axis label
+        svg += `<text x="10" y="15" fill="#666" font-size="11px">Load</text>`;
+
+        svg += '</svg>';
+        graphDisplay.innerHTML = svg;
+    }
+
+    function showBaselineGraph() {
+        if (graphShowing) {
+            hideBaselineGraph();
+            return;
+        }
+
+        graphShowing = true;
+        showGraphBtn.textContent = "Hide Graph";
+        graphContainer.style.display = "block";
+        updateGraphDisplay();
+    }
+
+    function hideBaselineGraph() {
+        graphShowing = false;
+        showGraphBtn.textContent = "Show Graph";
+        graphContainer.style.display = "none";
+    }
+
+    showGraphBtn.addEventListener("click", showBaselineGraph);
+
+
+    // Debug: Test unlock button
+    const testUnlockBtn = document.getElementById("testUnlockBtn");
+    testUnlockBtn.addEventListener("click", () => {
+        if (highestUnlockedLevel < 6) {
+            // Unlock next level with animation (immediate for debug)
+            highestUnlockedLevel++;
+            saveUnlockedLevel();
+            updateNBackButtons();
+            animateUnlockedButton(highestUnlockedLevel);
+            testUnlockBtn.textContent = `Test Unlock (${highestUnlockedLevel}/6)`;
+        } else {
+            // Reset to level 2 for testing again
+            highestUnlockedLevel = 2;
+            saveUnlockedLevel();
+            updateNBackButtons();
+            testUnlockBtn.textContent = "Test Unlock (Reset)";
         }
     });
 
-    svg += `<path d="${pathData}" fill="none" stroke="#2196F3" stroke-width="2"/>`;
-
-    // Trial outcome markers (dots)
-    // Green = correct match click, Red = error (missed match or false positive)
-    for (let i = 0; i < trialCount; i++) {
-        const t = trials[i];
-
-        // Skip if outcome not yet recorded
-        if (t.wasMatch === null || t.userClicked === null) continue;
-
-        const x = padding.left + (i / Math.max(trialCount - 1, 1)) * graphWidth;
-        const y = padding.top + graphHeight - ((t.currentLoad - minLoad) / (maxUniqueColors - minLoad)) * graphHeight;
-
-        if (t.wasMatch && t.userClicked) {
-            svg += `<circle cx="${x}" cy="${y}" r="6" fill="#4caf50" stroke="white" stroke-width="1.5" opacity="0.9"/>`;
-        } else if ((t.wasMatch && !t.userClicked) || (!t.wasMatch && t.userClicked)) {
-            svg += `<circle cx="${x}" cy="${y}" r="6" fill="#f44336" stroke="white" stroke-width="1.5" opacity="0.9"/>`;
-        }
-    }
-
-    // X-axis
-    svg += `<line x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="#666" stroke-width="1"/>`;
-
-    // X-axis label
-    svg += `<text x="${width / 2}" y="${height - 5}" text-anchor="middle" fill="#666">Trials</text>`;
-
-    // Y-axis
-    svg += `<line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" stroke="#666" stroke-width="1"/>`;
-
-    // Y-axis label
-    svg += `<text x="10" y="15" fill="#666" font-size="11px">Load</text>`;
-
-    svg += '</svg>';
-    graphDisplay.innerHTML = svg;
-}
-
-function showBaselineGraph() {
-    if (graphShowing) {
-        hideBaselineGraph();
-        return;
-    }
-
-    graphShowing = true;
-    showGraphBtn.textContent = "Hide Graph";
-    graphContainer.style.display = "block";
-    updateGraphDisplay();
-}
-
-function hideBaselineGraph() {
-    graphShowing = false;
-    showGraphBtn.textContent = "Show Graph";
-    graphContainer.style.display = "none";
-}
-
-showGraphBtn.addEventListener("click", showBaselineGraph);
-
-// ------------------ Focus Mode (Tunnel Vision) ------------------
-// Activates after 1 minute of uninterrupted play to induce focus
-// Uses a slow fade in (like night shift) to transition the brain into focus mode
-
-const focusVignette = document.getElementById("focusVignette");
-
-// Calculate vignette gradient centered on the grid
-function updateFocusVignette(intensity) {
-    if (intensity <= 0) {
-        focusVignette.style.opacity = "0";
-        return;
-    }
-
-    // Get grid position to center the clear area
-    const gridRect = grid.getBoundingClientRect();
-    const centerX = gridRect.left + gridRect.width / 2;
-    const centerY = gridRect.top + gridRect.height / 2;
-
-    // Convert to percentage of viewport
-    const centerXPercent = (centerX / window.innerWidth) * 100;
-    const centerYPercent = (centerY / window.innerHeight) * 100;
-
-    // Clear area size (slightly larger than grid)
-    const clearRadius = Math.max(gridRect.width, gridRect.height) * 0.6;
-    const clearRadiusVW = (clearRadius / window.innerWidth) * 100;
-
-    // Max darkness at edges (increases with intensity)
-    const maxDarkness = 0.12 * intensity; // up to 12% darker at edges (subtle)
-
-    // Create radial gradient: clear center, gradually darkening edges
-    // The gradient fades from transparent center to dark edges
-    const gradient = `radial-gradient(
-        ellipse ${clearRadiusVW * 2.5}vw ${clearRadiusVW * 2.5}vw at ${centerXPercent}% ${centerYPercent}%,
-        transparent 0%,
-        transparent 30%,
-        rgba(0, 0, 0, ${maxDarkness * 0.3}) 50%,
-        rgba(0, 0, 0, ${maxDarkness * 0.6}) 70%,
-        rgba(0, 0, 0, ${maxDarkness}) 100%
-    )`;
-
-    focusVignette.style.background = gradient;
-    focusVignette.style.opacity = "1";
-}
-
-// Start focus mode tracking when game begins
-function startFocusModeTracking() {
-    focusModeStartTime = Date.now();
-    focusModeActive = false;
-    focusModeIntensity = 0;
-
-    // Reset visual state
-    focusVignette.style.opacity = "0";
-    grid.classList.remove("focus-mode");
-    document.body.classList.remove("focus-mode");
-
-    // Start the focus mode update loop
-    updateFocusModeLoop();
-}
-
-// Update focus mode based on elapsed play time
-function updateFocusModeLoop() {
-    if (!isRunning) return;
-
-    const elapsed = Date.now() - focusModeStartTime;
-
-    if (elapsed >= FOCUS_MODE_DELAY && false) { // TODO disabled for now
-        // Past the 1 minute mark, start transitioning in
-        const transitionElapsed = elapsed - FOCUS_MODE_DELAY;
-        const targetIntensity = Math.min(transitionElapsed / FOCUS_MODE_TRANSITION_DURATION, 1);
-
-        // Smooth easing for the transition (ease in out)
-        const easedIntensity = targetIntensity < 0.5
-            ? 2 * targetIntensity * targetIntensity
-            : 1 - Math.pow(-2 * targetIntensity + 2, 2) / 2;
-
-        focusModeIntensity = easedIntensity;
-        focusModeActive = true;
-
-        // Update visual effects
-        updateFocusVignette(focusModeIntensity);
-
-        // Gradually darken body background
-        const baseBg = { r: 255, g: 239, b: 217 }; // #ffefd9
-        const darkenAmount = focusModeIntensity * 5; // darken by up to 5 on each channel (subtle)
-        const newBg = `rgb(${Math.round(baseBg.r - darkenAmount)}, ${Math.round(baseBg.g - darkenAmount)}, ${Math.round(baseBg.b - darkenAmount)})`;
-        document.body.style.background = newBg;
-    }
-
-    // Continue the loop
-    focusModeTransitionId = requestAnimationFrame(updateFocusModeLoop);
-}
-
-// Stop focus mode and reset visual state
-function stopFocusMode() {
-    if (focusModeTransitionId) {
-        cancelAnimationFrame(focusModeTransitionId);
-        focusModeTransitionId = null;
-    }
-
-    focusModeActive = false;
-    focusModeIntensity = 0;
-    focusModeStartTime = null;
-
-    // Smoothly fade out the vignette
-    focusVignette.style.transition = "opacity 0.5s ease";
-    focusVignette.style.opacity = "0";
-
-    // Remove focus mode class
-    document.body.classList.remove("focus-mode");
-
-    // Restore original body background with transition
-    document.body.style.transition = "background 0.5s ease";
-    document.body.style.background = "#ffefd9ec";
-
-    // Reset transition after it completes
-    setTimeout(() => {
-        document.body.style.transition = "";
-        focusVignette.style.transition = "";
-    }, 500);
-}
-
-// Update vignette position on window resize
-window.addEventListener("resize", () => {
-    if (focusModeActive && isRunning) {
-        updateFocusVignette(focusModeIntensity);
-    }
-});
-
-// Debug: Test focus mode button (simulates 1 minute of play)
-const testFocusModeBtn = document.getElementById("testFocusModeBtn");
-let focusModeTestActive = false;
-
-// ------------------ Daily Playtime Popup ------------------
-
-const playtimePopup = document.getElementById("playtimePopup");
-let playtimePopupTimeout = null;
-
-function showPlaytimePopup() {
-    // Only show when NOT in playing phase
-    if (isRunning) return;
-
-    // Clear any existing timeout
-    if (playtimePopupTimeout) {
-        clearTimeout(playtimePopupTimeout);
-    }
-
-    // Show the popup
-    playtimePopup.classList.add("visible");
-
-    // Hide after x seconds
-    playtimePopupTimeout = setTimeout(() => {
-        playtimePopup.classList.remove("visible");
-    }, 1618);
-}
-
-// Click handler for progress bar
-timerProgress.addEventListener("click", showPlaytimePopup);
-
-// Also support touch events for mobile
-timerProgress.addEventListener("touchend", (e) => {
-    e.preventDefault(); // prevent double firing with click
-    showPlaytimePopup();
-});
-
-testFocusModeBtn.addEventListener("click", () => {
-    if (!focusModeTestActive) {
-        // Activate focus mode immediately for testing
-        focusModeTestActive = true;
-        testFocusModeBtn.textContent = "Reset Focus Mode";
-        testFocusModeBtn.style.background = "#4caf50";
-        testFocusModeBtn.style.color = "white";
-
-        // Simulate being past the 1 minute mark by setting start time in the past
-        focusModeStartTime = Date.now() - FOCUS_MODE_DELAY - 1000;
-        focusModeActive = true;
-
-        // Animate to full intensity over 2 seconds for quick preview
-        let testIntensity = 0;
-        const testInterval = setInterval(() => {
-            testIntensity += 0.05;
-            if (testIntensity >= 1) {
-                testIntensity = 1;
-                clearInterval(testInterval);
-            }
-            focusModeIntensity = testIntensity;
-            updateFocusVignette(focusModeIntensity);
-
-            // Update grid brightness
-            if (focusModeIntensity > 0.1) {
-                grid.classList.add("focus-mode");
-            }
-
-            // Darken body background
-            const baseBg = { r: 255, g: 239, b: 217 };
-            const darkenAmount = focusModeIntensity * 5;
-            const newBg = `rgb(${Math.round(baseBg.r - darkenAmount)}, ${Math.round(baseBg.g - darkenAmount)}, ${Math.round(baseBg.b - darkenAmount)})`;
-            document.body.style.background = newBg;
-        }, 100);
-    } else {
-        // Reset focus mode
-        focusModeTestActive = false;
-        testFocusModeBtn.textContent = "Test Focus Mode";
-        testFocusModeBtn.style.background = "";
-        testFocusModeBtn.style.color = "";
-
-        stopFocusMode();
-    }
-});
-
-// Debug: Test unlock button
-const testUnlockBtn = document.getElementById("testUnlockBtn");
-testUnlockBtn.addEventListener("click", () => {
-    if (highestUnlockedLevel < 6) {
-        // Unlock next level with animation (immediate for debug)
-        highestUnlockedLevel++;
-        saveUnlockedLevel();
-        updateNBackButtons();
-        animateUnlockedButton(highestUnlockedLevel);
-        testUnlockBtn.textContent = `Test Unlock (${highestUnlockedLevel}/6)`;
-    } else {
-        // Reset to level 2 for testing again
-        highestUnlockedLevel = 2;
-        saveUnlockedLevel();
-        updateNBackButtons();
-        testUnlockBtn.textContent = "Test Unlock (Reset)";
-    }
-});
-
-// ------------------ Tab Focus Detection (Refresh after 5min absence) ------------------
-
-let tabHiddenTimestamp = null;
-
-document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-        // Tab is being hidden, record timestamp
-        tabHiddenTimestamp = Date.now();
-    } else {
-        // Tab is visible again
-        if (tabHiddenTimestamp) {
-            const awayDuration = Date.now() - tabHiddenTimestamp;
-            tabHiddenTimestamp = null;
-
-            // If user was away 5+ minutes and game is NOT running, refresh page
-            if (awayDuration >= AWAY_THRESHOLD && !isRunning) {
-                console.log(`User returned after ${Math.round(awayDuration / 1000 / 60)} min, refreshing page`);
-                window.location.reload();
-            }
-        }
-    }
-});
+} // end IS_LOCAL_HOST debug block
