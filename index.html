@@ -127,6 +127,52 @@
             transition: stroke-dashoffset 0.3s ease;
         }
 
+        #roundProgressContainer.end-screen {
+            cursor: pointer;
+        }
+
+        #roundProgressContainer.end-screen .progress-circle {
+            stroke: #57b9c6;
+        }
+
+        #roundProgressContainer.end-screen .bg-circle {
+            stroke: rgba(200, 200, 200, 0.3);
+        }
+
+        /* Rounds popup tooltip */
+        #roundsPopup {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 0;
+            transform: scale(0.9);
+            transform-origin: bottom left;
+            background: rgba(50, 50, 50, 0.9);
+            color: white;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 100;
+        }
+
+        #roundsPopup.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        #roundsPopup::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 15px;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: rgba(50, 50, 50, 0.9);
+        }
+
         #startBtn, #matchBtn {
             font-size: 20px;
             padding: 34px 0;
@@ -1048,6 +1094,7 @@
                 <circle class="bg-circle" cx="15" cy="15" r="12"/>
                 <circle class="progress-circle" cx="15" cy="15" r="12"/>
             </svg>
+            <div id="roundsPopup">Played rounds: 0</div>
         </div>
         <button id="stopBtn" disabled style="display: none;">Break</button>
     </div>

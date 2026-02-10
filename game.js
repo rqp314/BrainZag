@@ -2025,6 +2025,7 @@ function startGame() {
     matchBtn.style.display = "inline-block";
     stopBtn.style.display = "inline-block";
     roundProgressContainer.style.display = "block";
+    roundProgressContainer.classList.remove("end-screen");
 
     // Reset round progress circle to empty
     if (roundProgressCircle) {
@@ -2161,7 +2162,11 @@ function stopGame(autoEnded = false) {
     startBtn.style.display = "inline-block";
     matchBtn.style.display = "none";
     stopBtn.style.display = "none";
-    roundProgressContainer.style.display = "none";
+    if (rounds >= 1) {
+        roundProgressContainer.classList.add("end-screen");
+    } else {
+        roundProgressContainer.style.display = "none";
+    }
 
     startBtn.disabled = false;
     stopBtn.disabled = true;
@@ -2529,6 +2534,34 @@ timerProgress.addEventListener("click", showPlaytimePopup);
 timerProgress.addEventListener("touchend", (e) => {
     e.preventDefault(); // prevent double firing with click
     showPlaytimePopup();
+});
+
+
+// ------------------ Rounds Popup ------------------
+
+const roundsPopup = document.getElementById("roundsPopup");
+let roundsPopupTimeout = null;
+
+function showRoundsPopup() {
+    if (isRunning) return;
+
+    if (roundsPopupTimeout) {
+        clearTimeout(roundsPopupTimeout);
+    }
+
+    roundsPopup.textContent = `Played rounds: ${rounds}`;
+    roundsPopup.classList.add("visible");
+
+    roundsPopupTimeout = setTimeout(() => {
+        roundsPopup.classList.remove("visible");
+    }, 1618);
+}
+
+roundProgressContainer.addEventListener("click", showRoundsPopup);
+
+roundProgressContainer.addEventListener("touchend", (e) => {
+    e.preventDefault();
+    showRoundsPopup();
 });
 
 
