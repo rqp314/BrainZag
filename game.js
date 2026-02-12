@@ -93,8 +93,9 @@ let totalTargets = 0;
 // Positive insight tracking
 let currentStreak = 0;
 let longestStreak = 0;
-let difficultMatchesCaught = 0; // matches caught when load was high (>= 66% of max)
 let lastRoundAccuracy = null; // accuracy from previous round (for comparison)
+let recentInsights = []; // avoid repeating the same insight recently
+
 let roundLocked = false;
 let currentActiveCell = null; // track the cell currently showing stimulus
 let currentBgCell = null; // track corresponding background cell
@@ -128,6 +129,7 @@ let currentRoundId = 0;
 const MAX_DAYS_STORED = 3650; // ~10 years
 let performanceHistory = new Map();
 let pendingPerformance = null; // in memory until stopGame saves it
+let pendingPerformanceDate = null; // which date this pending data belongs to
 
 // Load nback engine state from localStorage (trainer state only, not trial history)
 function loadNBackEngineState() {
@@ -397,6 +399,7 @@ function initPendingPerformance() {
             playTime: 0
         };
     }
+    pendingPerformanceDate = today;
 }
 
 // Update pendingPerformance in memory (called after each trial, no disk write)
@@ -433,6 +436,17 @@ function savePerformanceToDisk() {
     if (!pendingPerformance) return;
 
     const today = formatDateLocal(new Date());
+
+    // Handles midnight boundary: if the date rolled over, save stale data under its
+    // original date and re-init a fresh object for the new day
+    if (pendingPerformanceDate && pendingPerformanceDate !== today) {
+        // Day changed since we started accumulating. Save old data under its date.
+        performanceHistory.set(pendingPerformanceDate, pendingPerformance);
+        savePerformanceHistory();
+        // Start fresh for the new day
+        initPendingPerformance();
+    }
+
     performanceHistory.set(today, pendingPerformance);
     savePerformanceHistory();
 }
@@ -1869,14 +1883,7 @@ function handleMatch() {
         if (currentStreak > longestStreak) {
             longestStreak = currentStreak;
         }
-        // Track difficult matches (high memory load >= 66% of max)
-        if (nbackEngine) {
-            const stats = nbackEngine.getStats();
-            const loadPercent = stats.workingMemory.currentLoad / stats.workingMemory.maxUniqueColors;
-            if (loadPercent >= 0.66) {
-                difficultMatchesCaught++;
-            }
-        }
+
     } else {
         incorrectMatches++;
         currentStreak = 0; // break streak on false positive
@@ -1923,7 +1930,6 @@ function startGame() {
     totalTargets = 0;
     currentStreak = 0;
     longestStreak = 0;
-    difficultMatchesCaught = 0;
     isRunning = true;
     progressBarFull = false;
     reactionTimer.reset(); // reset reaction timer for new game
@@ -2235,111 +2241,6 @@ function updateRoundProgressCircle() {
     roundProgressCircle.style.strokeDashoffset = offset;
 }
 
-
-// ------------------ Positive Insights Generator ------------------
-
-// Catalog of possible insights with priority weights
-function generatePositiveInsight(accuracy, roundsPlayed) {
-    const insights = [];
-
-    // 1. Longest streak (if >= 3)
-    if (longestStreak >= 3) {
-        insights.push({
-            text: `Longest streak: ${longestStreak} correct`,
-            priority: longestStreak >= 7 ? 10 : longestStreak >= 5 ? 7 : 4
-        });
-    }
-
-    // 2. Difficult matches caught
-    if (difficultMatchesCaught >= 1) {
-        insights.push({
-            text: `Caught ${difficultMatchesCaught} difficult match${difficultMatchesCaught > 1 ? 'es' : ''}`,
-            priority: difficultMatchesCaught >= 3 ? 8 : 5
-        });
-    }
-
-    // 3. Better accuracy than last round
-    if (lastRoundAccuracy !== null && accuracy > lastRoundAccuracy) {
-        const improvement = accuracy - lastRoundAccuracy;
-        insights.push({
-            text: `+${improvement}% better than last round`,
-            priority: improvement >= 10 ? 9 : 6
-        });
-    }
-
-    // 4. Perfect or near-perfect accuracy
-    if (accuracy === 100 && roundsPlayed >= 10) {
-        insights.push({
-            text: `Perfect round!`,
-            priority: 12
-        });
-    } else if (accuracy >= 90 && roundsPlayed >= 10) {
-        insights.push({
-            text: `Excellent accuracy!`,
-            priority: 8
-        });
-    }
-
-    // 5. Completed full round (40 trials)
-    if (roundsPlayed >= 40) {
-        insights.push({
-            text: `Full round completed`,
-            priority: 6
-        });
-    }
-
-    // 6. Good number of rounds played
-    if (roundsPlayed >= 20 && roundsPlayed < 40) {
-        insights.push({
-            text: `Solid session: ${roundsPlayed} rounds`,
-            priority: 3
-        });
-    }
-
-    // 7. Daily playtime milestones
-    const totalMinutes = Math.floor(elapsedSeconds / 60);
-    if (totalMinutes >= 20) {
-        insights.push({
-            text: `Daily goal reached: ${totalMinutes} min`,
-            priority: 7
-        });
-    } else if (totalMinutes >= 10 && totalMinutes < 13) {
-        insights.push({
-            text: `Halfway to daily goal`,
-            priority: 4
-        });
-    } else if (totalMinutes >= 2 && totalMinutes < 6) {
-        insights.push({
-            text: `Good start: ${totalMinutes} min today`,
-            priority: 2
-        });
-    }
-
-    // 8. Any correct matches at all (fallback positive)
-    if (correctMatches >= 1) {
-        insights.push({
-            text: `Nice focus`,
-            priority: 1
-        });
-    }
-
-    // 9. Just showing up is good (ultimate fallback)
-    if (insights.length === 0 || roundsPlayed >= 1) {
-        insights.push({
-            text: ``,
-            priority: 0
-        });
-    }
-
-    // Sort by priority (highest first)
-    insights.sort((a, b) => b.priority - a.priority);
-
-    // Take top 5 and randomly pick one for variety
-    const topInsights = insights.slice(0, 5);
-    const randomIndex = Math.floor(Math.random() * topInsights.length);
-    return topInsights[randomIndex].text;
-}
-
 // ------------------ Results ------------------
 
 function showResults() {
@@ -2379,13 +2280,13 @@ function showResults() {
         const loadBar = '█'.repeat(filledSegments) + '░'.repeat(emptySegments);
         memoryLoadHtml = `
             <div style="font-size: 12px; color: #666; margin-top: 12px;">
-                Memory Load:  <span style="color: ${loadColor};">${loadBar}</span>   ${roundedAvg} / ${maxUniqueColors}
+                Memory Load:  <span style="color: ${loadColor}; border: 0.7px solid #0000007f; padding: 1px 1px; border-radius: 3px;">${loadBar}</span>   ${roundedAvg} / ${maxUniqueColors}
             </div>`;
     }
 
     // Generate positive insight
     const insightText = generatePositiveInsight(percentage, rounds);
-    const insightHtml = `<div style="font-size: 13px; margin-top: 25px; font-weight: 800;">${insightText}</div>`;
+    const insightHtml = insightText ? `<div style="font-size: 13px; margin-top: 7px; font-weight: 500; font-style: italic;"><span>${insightText}</span></div>` : '';
 
     // Save accuracy for next round comparison
     lastRoundAccuracy = percentage;
@@ -2397,14 +2298,15 @@ function showResults() {
                 <span id="accuracyNumber">0</span><span style="font-size: 20px; color: #555;">%</span>
             </div>
             <div style="font-size: 14px; color: #555; margin-bottom: 6px;">
-                <strong>Correct:</strong> ${correctMatches} / ${totalTargets}
+                <strong style="font-weight: 800;">Correct:</strong> ${correctMatches} / ${totalTargets}
                 <span style="margin: 0 10px; color: #ccc;">|</span>
-                <strong>Incorrect:</strong> ${incorrectMatches}
+                <strong style="font-weight: 800;">Incorrect:</strong> ${incorrectMatches}
             </div>
             <div style="font-size: 12px; color: #888;">
                 Rounds: ${rounds}
             </div>
             ${memoryLoadHtml}
+            <br>
             ${insightHtml}
         </div>
     `;
@@ -2579,9 +2481,10 @@ document.addEventListener("visibilitychange", () => {
             const awayDuration = Date.now() - tabHiddenTimestamp;
             tabHiddenTimestamp = null;
 
-            // If user was away 5+ minutes and game is NOT running, refresh page
+            // If user was away 5+ minutes and game is NOT running, reset layout and refresh page
             if (awayDuration >= AWAY_THRESHOLD && !isRunning) {
-                console.log(`User returned after ${Math.round(awayDuration / 1000 / 60)} min, refreshing page`);
+                console.log(`User returned after ${Math.round(awayDuration / 1000 / 60)} min, resetting layout and refreshing page`);
+                localStorage.removeItem('cellHidingState');
                 window.location.reload();
             }
         }

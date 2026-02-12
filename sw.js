@@ -14,6 +14,7 @@ const ASSETS_TO_CACHE = [
     '/index.html',
     '/game.js',
     '/core.js',
+    '/insights.js',
     '/site.webmanifest',
     '/social-preview.png',
     '/GitHub_Invertocat_Black_Clearspace.png',
