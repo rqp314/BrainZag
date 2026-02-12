@@ -10,7 +10,7 @@ BrainZag is a "Color [N-back](https://en.wikipedia.org/wiki/N-back)" brain train
        width="314">
 </p>
 
-### How to play
+### How to play - [BrainZag.com](https://www.brainzag.com/)
 - Basic gameplay: You are shown a sequence of colors one at a time. Your goal is to identify **if the current color matches the one from N steps earlier** in the sequence. For example in a 2-back game, if the sequence is: *red, blue, red* - you would recognize the *current red* as a match to the *red two steps before* -> click Match.
 
 - In your mind try to update the information "***going forward + looking backwards***", given an example sequence: *yellow, blue, red* - update your mind with: [*yellow*], [*blue -> yellow*] and [*red -> blue -> yellow*].
