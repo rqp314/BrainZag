@@ -253,7 +253,7 @@ class UniqueColorController {
     // Correct rejection tracking (for deferred micro-reward)
     this.correctRejectionStreak = 0;
     this.rejectionWindow = n + 1; // Window length needed to earn credit
-    this.rejectionReward = 0.05; // Very small delayed reward
+    this.rejectionReward = 0.05; // Very small delayed reward // TODO value too small ?
   }
 
   recordTrial(correct, isValid, confidence = 1.0, wasMatch = false, userClicked = false) {
@@ -266,7 +266,6 @@ class UniqueColorController {
       this.performanceEMA +=
         this.alpha * (score - this.performanceEMA);
 
-      this.correctRejectionStreak = 0; // Reset streak
       this.updatePressure();
       return;
     }
