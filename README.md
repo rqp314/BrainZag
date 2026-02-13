@@ -34,7 +34,7 @@ Rather it should feel like your brain is pinging the buckets on its own, and you
 The ability to store and manipulate information for short periods of time.
 
 - [Improving fluid intelligence with training on working memory](https://scholar.google.com/citations?view_op=view_citation&hl=en&user=xEbuGsAAAAAJ&citation_for_view=xEbuGsAAAAAJ:u5HHmVD_uO8C)
-- [A meta-analysis](https://scholar.google.com/citations?view_op=view_citation&hl=en&user=xEbuGsAAAAAJ&citation_for_view=xEbuGsAAAAAJ:NMxIlDl6LWMC) - ([youtube video presentation](https://www.youtube.com/watch?v=YfD-UzyKhAo&t=505s))
+- [A meta-analysis](https://scholar.google.com/citations?view_op=view_citation&hl=en&user=xEbuGsAAAAAJ&citation_for_view=xEbuGsAAAAAJ:NMxIlDl6LWMC) ([youtube video presentation](https://www.youtube.com/watch?v=YfD-UzyKhAo&t=505s))
 
 
 An improved working memory will help you to **learn faster, remember more, solve novel problems** and **stay focused longer**.

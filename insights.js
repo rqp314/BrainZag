@@ -39,17 +39,16 @@ const motivation = [
     `Your brain is rewiring RIGHT NOW`,
     `The score doesn't show the neural growth`,
     `Bad rounds are just warmups`,
-    `Well that was... character building`,
-    `Not your finest hour. But you're still here`,
+    `But you're still here`,
     `The colors won this round. Rematch?`,
     `If this were easy, everyone would do it`,
     `Your brain just filed a complaint`,
     `The squares are laughing. Can you hear them?`,
     `You're voluntarily doing this. Wild`,
-    `Your phone is proud. Probably`,
+    `Your phone is proud. Probably...`,
     `Blink twice if you need help`,
     `What stands in the way becomes the way`,
-    `Fall seven times, stand up eight`,
+    `Fall seven times, stand up eight !`,
     `Difficulty is what wakes up the genius`,
     `A smooth sea never made a skilled sailor`,
 ];
@@ -113,6 +112,8 @@ const otherMessages = [
     `One more session in the bank`,
     `Done is better than perfect`,
     `That's another deposit in the brain bank`,
+    `N-Back is not hard, sitting down every day is`,
+    `If you want to move a mountain, start with the small stones`,
 ];
 
 // Count how many consecutive days (including today) the player has played
