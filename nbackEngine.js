@@ -11,7 +11,7 @@
 */
 
 // ============================================================================
-// LOW-PASS FILTER (utility, used by game.js ReactionTimer)
+// LOW-PASS FILTER (utility, used by main.js ReactionTimer)
 // ============================================================================
 
 class LowPassFilter {

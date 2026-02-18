@@ -12,8 +12,8 @@ const CACHE_NAME = 'brainzag-cache';
 const ASSETS_TO_CACHE = [
     '/',
     '/index.html',
-    '/game.js',
-    '/core.js',
+    '/main.js',
+    '/nbackEngine.js',
     '/insights.js',
     '/site.webmanifest',
     '/social-preview.png',

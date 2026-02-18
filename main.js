@@ -4,7 +4,7 @@
  * License: See LICENSE file
  * Copyright (c) 2026 BrainZag
  *
- * Game logic, UI handling, debug tools, and adaptive difficulty system.
+ * Game logic, UI handling, debug tools
  *
 */
 
@@ -1395,7 +1395,7 @@ function applyDeactivatedCells() {
     document.getElementById("grid").classList.toggle("grid-outlined", hasOuterHidden);
 }
 
-// Convert deactivated cell indices to position objects for core.js
+// Convert deactivated cell indices to position objects for nbackEngine.js
 function getExcludedPositions() {
     return deactivatedCells.map(index => ({
         row: Math.floor(index / 3),
