@@ -229,24 +229,26 @@ class AbilityModel {
     return Math.min(1.0, (tailComponent + cvComponent + trendComponent) / 3);
   }
 
-  // Flow score: good ability + low variability + positive trend
-  // A perfect player with normal RT variability should reach 85-95%.
+  // Flow score: good ability + low variability + positive trend.
+  // Mastery at steady state: low-mid 70s (small positive trend pushes into 80s).
+  // Strong improvement phase: 90s+. Perfect across all axes: 100%.
+  // Note: while improving your flow score will be higher compared to sustaining perfect score
   getFlowScore() {
     const rt = this.getRTStats();
     const trend = this.getThetaTrend();
 
-    // Normalize theta: 0 at theta=0, 1.0 at theta=2.5 (not 3.0, so good players saturate)
+    // Normalize theta: 0 at theta=0, 1.0 at theta=2.5
     const normalizedTheta = Math.max(0, Math.min(1, this.theta / 2.5));
 
-    // CV bonus: normal CV (0.2-0.35) should still give a decent bonus
-    // 1.0 at CV=0, 0.5 at CV=0.3, 0 at CV=0.6
-    const cvBonus = Math.max(0, Math.min(1, 1 - rt.cv / 0.6));
+    // CV bonus: no penalty until CV=0.15 (normal human noise floor).
+    // Then linear to 0 at CV=0.60. CV=0.25 earns 0.78, CV=0.35 earns 0.56.
+    const cvBonus = Math.max(0, Math.min(1, 1 - Math.max(0, rt.cv - 0.15) / 0.45));
 
-    // Positive trend is good for flow
-    const trendBonus = Math.max(0, Math.min(0.3, trend * 5));
+    // Trend bonus normalized to [0,1]: saturates at slope 0.05/trial.
+    const trendBonus = Math.max(0, Math.min(1, trend * 20));
 
     // Weights: theta 55%, CV 25%, trend 20%
-    return Math.min(1.0, normalizedTheta * 0.55 + cvBonus * 0.25 + trendBonus * 0.2);
+    return Math.min(1.0, normalizedTheta * 0.55 + cvBonus * 0.25 + trendBonus * 0.20);
   }
 
   // Map theta to 0..1 for backward compatibility with performanceEMA display
@@ -600,6 +602,17 @@ class ColorSequenceGenerator {
     return entropy;
   }
 
+  isValidMatchColor(currentWindow, candidate, target) {
+    // A match drops the oldest color and re-adds the n-back color.
+    // Only one color is ever removed so unique count can only stay the same (= target)
+    // or drop by exactly 1 (= target-1). target-2 or lower is impossible.
+    // NEVER allow target+1: matches cannot introduce a new color.
+    const windowSize = this.n + 1;
+    const simulated = [...currentWindow, candidate].slice(-windowSize);
+    const uniqueCount = new Set(simulated).size;
+    return uniqueCount <= target;
+  }
+
   isValidNextColor(currentWindow, candidate, target) {
     // Simulate what the window will look like after adding this candidate
     const windowSize = this.n + 1;
@@ -643,7 +656,7 @@ class ColorSequenceGenerator {
     return [...windowSet][0];
   }
 
-  generateNextColor(targetUniqueColors, isMatch, nBackColor, isForced = false) {
+  generateNextColor(targetUniqueColors, shouldMatch, nBackColor, isForced = false) {
     const currentWindow = this.memoryState.recentColors;
 
     // Ensure target is at least 2
@@ -656,28 +669,22 @@ class ColorSequenceGenerator {
     this.lastTarget = target;
 
     // If this is a match trial, validate the N-back color maintains constraint
-    if (isMatch && nBackColor) {
-      // When forced due to gap pressure, allow reducing load but never increasing
+    if (shouldMatch && nBackColor) {
       if (isForced) {
-        // Relaxed validation for forced matches
-        const windowSize = this.n + 1;
-        const simulated = [...currentWindow, nBackColor].slice(-windowSize);
-        const uniqueCount = new Set(simulated).size;
-        // Allow target-1, target-2, etc. (reduce cognitive load) but NEVER target+1
-        if (uniqueCount <= target) {
-          return nBackColor;
-        }
+        // Hard guarantee: always return the n-back color.
+        // Matches only reduce or maintain unique count so no constraint is violated.
+        return nBackColor;
       } else {
-        // Strict validation for normal matches
-        if (this.isValidNextColor(currentWindow, nBackColor, target)) {
+        // Normal match: only return n-back color if constraint is satisfied.
+        // Falls through to non-match generation if validation fails.
+        if (this.isValidMatchColor(currentWindow, nBackColor, target)) {
           return nBackColor;
         }
       }
-      // If match would violate constraint even with relaxation, fall through
     }
 
     // When NOT creating a match, exclude the n-back color to avoid accidental matches
-    const excludeColor = !isMatch ? nBackColor : null;
+    const excludeColor = !shouldMatch ? nBackColor : null;
 
     // ALGORITHM: Three cases based on targetUniqueColors (K)
     // Case 1: K = 2 (minimum) - keep patterns simple, repeat existing
@@ -685,13 +692,12 @@ class ColorSequenceGenerator {
     // Case 3: K = in between - maintain active set of K colors
 
     let next;
-
     if (target === 2) { // Case 1: K = 2 (minimum load)
       next = this.generateForMinLoad(currentWindow, excludeColor, target);
     } else if (target === this.n + 1) { // Case 2: K = n+1 (maximum load)
       next = this.generateForMaxLoad(currentWindow, excludeColor, target);
     } else { // Case 3: K = in between (use active set)
-      next = this.generateForMidLoad(currentWindow, target, excludeColor);
+      next = this.generateForMidLoad(currentWindow, excludeColor, target);
     }
 
     return next;
@@ -772,7 +778,7 @@ class ColorSequenceGenerator {
     return this.pickNextWithConstraint(currentWindow, candidates, target);
   }
 
-  generateForMidLoad(currentWindow, target, excludeColor) {
+  generateForMidLoad(currentWindow, excludeColor, target) {
     // K = between 2 and n+1: Maintain active set of K colors
 
     const uniqueColors = [...new Set(currentWindow)];
