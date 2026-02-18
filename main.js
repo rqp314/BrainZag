@@ -349,11 +349,8 @@ let elapsedSeconds = 0;      // total seconds played today
 let timerInterval = null;
 const CHUNK_SECONDS = 1200; // 20 minutes per chunk
 let minuteIndicators = [];  // DOM elements for minute markers
-let progressBarFull = false; // track if progress bar has reached 100% during gameplay
 let minutePositions = []; // Fibonacci-based minute positions (in minutes)
-let lastCompletedChunk = 0; // track the last completed chunk to detect resets
 let isAnimatingBar = false; // track if progress bar is animating (during stopGame)
-let segmentElements = []; // DOM elements for segmented progress bars during gameplay
 
 // ================== Performance History (Map<dateStr, PerformanceData>) ==================
 // heatmap + progress: { n, hits, misses, falseAlarms, correctRejections, sumLoad, maxLoad, playTime }
@@ -731,7 +728,6 @@ function loadDailyTimer() {
     const todayData = performanceHistory.get(today);
     elapsedSeconds = todayData ? todayData.playTime : 0;
 
-    updateTimerUI();
     loadMinutePositions();
     renderActivityHeatmap();
 }
@@ -774,104 +770,12 @@ function saveMinutePositions() {
     localStorage.setItem("minutePositionsDate", today);
 }
 
-// Update segmented progress bar based on current progress
-function updateSegmentedProgressBar(progressPercent) {
-    if (!isRunning || segmentElements.length === 0) return;
-
-    segmentElements.forEach(seg => {
-        if (progressPercent <= seg.startPercent) {
-            // Haven't reached this segment yet
-            seg.fill.style.width = "0%";
-        } else if (progressPercent >= seg.endPercent) {
-            // Segment is completely filled
-            seg.fill.style.width = "100%";
-        } else {
-            // Partially filled segment
-            const segmentWidth = seg.endPercent - seg.startPercent;
-            const segmentProgress = progressPercent - seg.startPercent;
-            const fillPercent = (segmentProgress / segmentWidth) * 100;
-            seg.fill.style.width = `${fillPercent}%`;
-        }
-    });
-}
-
-function updateTimerUI() {
-    // Update current session progress fill (only during gameplay)
-    if (isRunning) {
-        const currentProgress = elapsedSeconds % CHUNK_SECONDS;
-        const progressPercent = (currentProgress / CHUNK_SECONDS) * 100;
-
-        // If bar has reached 100% during this session, keep it there
-        if (progressBarFull) {
-            timerFill.style.width = "100%";
-            updateSegmentedProgressBar(100);
-            return;
-        }
-
-        // Check if we're at or past 100%
-        if (progressPercent >= 99.9) {
-            progressBarFull = true;
-            timerFill.style.transition = "width 0.3s linear";
-            timerFill.style.width = "100%";
-            updateSegmentedProgressBar(100);
-        } else {
-            // Normal update
-            timerFill.style.transition = "width 0.3s linear";
-            timerFill.style.width = `${progressPercent}%`;
-            updateSegmentedProgressBar(progressPercent);
-        }
-
-        // Update indicator styles based on progress
-        updateIndicatorStyles();
-    }
-}
-
 // Start daily timer while game runs
 function startDailyTimer() {
     if (timerInterval) return;
 
-    // Initialize last completed chunk
-    lastCompletedChunk = Math.floor(elapsedSeconds / CHUNK_SECONDS);
-
     timerInterval = setInterval(() => {
         elapsedSeconds++;
-
-        // Check if we crossed into a new chunk
-        const currentChunk = Math.floor(elapsedSeconds / CHUNK_SECONDS);
-        if (currentChunk > lastCompletedChunk) {
-            lastCompletedChunk = currentChunk;
-
-            // Only reset progress bar if it hasn't reached 100% yet
-            // If progressBarFull is true, keep the bar at 100% during gameplay
-            if (!progressBarFull) {
-                // Reset progress bar to start of new chunk
-                timerFill.style.transition = "none";
-                timerFill.style.width = "0%";
-
-                // Reset segmented progress bar if in gameplay mode
-                if (isRunning && segmentElements.length > 0) {
-                    segmentElements.forEach(seg => {
-                        seg.fill.style.transition = "none";
-                        seg.fill.style.width = "0%";
-                    });
-                    setTimeout(() => {
-                        segmentElements.forEach(seg => {
-                            seg.fill.style.transition = "width 0.3s linear";
-                        });
-                    }, 50);
-                }
-
-                // Force reflow
-                setTimeout(() => {
-                    timerFill.style.transition = "width 0.3s linear";
-                }, 50);
-            }
-
-            // DO NOT show indicators during gameplay
-            // Indicators are only shown during end screen (in stopGame)
-        }
-
-        updateTimerUI();
         updatePlayTime(elapsedSeconds);
     }, 1000);
 }
@@ -1827,7 +1731,6 @@ function startGame() {
     currentStreak = 0;
     longestStreak = 0;
     isRunning = true;
-    progressBarFull = false;
     reactionTimer.reset(); // reset reaction timer for new game
 
     // Stop any locked button vibration from end screen
