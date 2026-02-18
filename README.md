@@ -22,9 +22,9 @@ Rather it should feel like your brain is pinging the buckets on its own, and you
 
 ### Features
 - Adaptive difficulty - based on your recent performance. Brain Zag models your current **working memory capacity** and slowly expands it by introducing more distinct colors per sliding window. This allows for a smoother experience and avoids random difficulty spikes
-- Responsive UI - doesnt look and feel like any other N-back app
+- Responsive UI - doesn't look and feel like any other N-back app
 - Heatmap and daily time progress bar - it is recommended that you **train 20 minutes per day**
-- Dynamic grid layout - so it doesnt get boring
+- Dynamic grid layout - so it doesn't get boring
 - Works fully offline - load the page once and it will keep working even without internet
 
 <br>
