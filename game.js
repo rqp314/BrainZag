@@ -35,15 +35,22 @@ COLORS.forEach(c => {
 
 const DISPLAY_TIME = 500;   // 0.5s stimulus showing
 const INTERVAL_TIME = 2500; // 2.5s between items
-const TIMING_JITTER = 50;  // ±50ms random variation in timing
 
-// TODO data versioning maybe required ?
+// Get adaptive stimulus interval, applying the DifficultyController speed multiplier
+// stimulusInterval: 0.92 = faster (in flow), 1.08 = slower (fatigued), 1.0 = normal
+function getAdaptiveInterval() {
+    const adaptive = nbackEngine
+        ? (nbackEngine.getStats().stimulusInterval || 1.0)
+        : 1.0;
+    return INTERVAL_TIME * adaptive;
+}
 
-// Get randomized interval with jitter
-function getRandomizedInterval() {
-    return INTERVAL_TIME; // TODO still required ?
-    const jitter = (Math.random() * 2 - 1) * TIMING_JITTER; // random between -TIMING_JITTER and +TIMING_JITTER
-    return INTERVAL_TIME + jitter;
+// Get adaptive display time for how long the stimulus stays visible
+function getAdaptiveDisplayTime() {
+    const adaptive = nbackEngine
+        ? (nbackEngine.getStats().stimulusInterval || 1.0)
+        : 1.0;
+    return DISPLAY_TIME * adaptive;
 }
 
 // ------------------ ReactionTimer ------------------
@@ -109,11 +116,11 @@ const WARMUP_DURATION = 1 * 60 * 1000; // 1 minute warmup before cell hiding sta
 const LAYOUT_DURATION = 1.618 * 60 * 1000; // 1.618 minutes per layout (based on play time)
 let lastActivityTimestamp = null; // when player last had activity (persisted)
 let currentGameStartTime = null; // when current game round started
-let accumulatedPlayTime = 0; // total ms played in current session (resets when away > 5 min)
+let accumulatedPlayTime = 0; // total ms played in current session (resets when away > 10 min)
 let layoutPlayTimeStart = 0; // accumulated play time when current layout was created
 let cellHidingActive = false; // whether cell hiding is currently active
 
-const AWAY_THRESHOLD = 5 * 60 * 1000; // 5 minutes in ms
+const AWAY_THRESHOLD = 10 * 60 * 1000; // 10 minutes in ms
 
 // N-Back Engine
 let nbackEngine = null;
@@ -148,8 +155,13 @@ function loadNBackEngineState() {
         // Restore internal state if available
         if (state.trainerState) {
             game.trainer.trialNumber = state.trainerState.trialNumber || 0;
-            game.trainer.colorController.currentUniqueColors = state.trainerState.currentUniqueColors || 2;
-            game.trainer.performanceTracker.accuracy = state.trainerState.accuracy || 0.75;
+            game.trainer.difficultyController.currentUniqueColors = state.trainerState.currentUniqueColors || 2;
+            if (state.trainerState.theta !== undefined) {
+                game.trainer.abilityModel.theta = state.trainerState.theta;
+            }
+            if (state.trainerState.targetEntropy !== undefined) {
+                game.trainer.difficultyController.targetEntropy = state.trainerState.targetEntropy;
+            }
         }
 
         return game;
@@ -762,58 +774,6 @@ function saveMinutePositions() {
     localStorage.setItem("minutePositionsDate", today);
 }
 
-// Create segmented progress bar (islands with gaps)
-function createSegmentedProgressBar() {
-    // Remove existing segments
-    segmentElements.forEach(seg => seg.container.remove());
-    segmentElements = [];
-
-    // Ensure container has relative positioning for absolute children
-    timerProgress.style.position = "relative";
-
-    // Convert minute positions to percentages (sorted)
-    const dividerPositions = minutePositions
-        .map(min => (min * 60 / CHUNK_SECONDS) * 100)
-        .sort((a, b) => a - b);
-
-    // Create 5 segments (4 dividers create 5 segments)
-    const segmentBoundaries = [0, ...dividerPositions, 100];
-    const GAP_WIDTH = 3; // gap between islands in pixels
-
-    for (let i = 0; i < segmentBoundaries.length - 1; i++) {
-        const startPercent = segmentBoundaries[i];
-        const endPercent = segmentBoundaries[i + 1];
-        const widthPercent = endPercent - startPercent;
-
-        // Create segment container
-        const segment = document.createElement("div");
-        segment.style.position = "absolute";
-        segment.style.left = `${startPercent}%`;
-        segment.style.width = `calc(${widthPercent}% - ${GAP_WIDTH}px)`;
-        segment.style.height = "100%";
-        segment.style.background = "rgba(221, 221, 221, 0.6)";
-        segment.style.borderRadius = "3px";
-        segment.style.overflow = "hidden";
-        segment.style.zIndex = "10";
-        segment.style.pointerEvents = "none";
-
-        // Create fill inside segment
-        const fill = document.createElement("div");
-        fill.className = "segment-fill";
-        fill.style.position = "absolute";
-        fill.style.left = "0";
-        fill.style.top = "0";
-        fill.style.height = "100%";
-        fill.style.width = "0%";
-        fill.style.background = "rgba(183, 175, 175, 0.7)";
-        fill.style.transition = "width 0.3s linear";
-
-        segment.appendChild(fill);
-        timerProgress.appendChild(segment);
-        segmentElements.push({ container: segment, fill: fill, startPercent, endPercent });
-    }
-}
-
 // Update segmented progress bar based on current progress
 function updateSegmentedProgressBar(progressPercent) {
     if (!isRunning || segmentElements.length === 0) return;
@@ -833,11 +793,6 @@ function updateSegmentedProgressBar(progressPercent) {
             seg.fill.style.width = `${fillPercent}%`;
         }
     });
-}
-
-function removeSegmentedProgressBar() {
-    segmentElements.forEach(seg => seg.container.remove());
-    segmentElements = [];
 }
 
 function updateTimerUI() {
@@ -1148,10 +1103,10 @@ const showColorsBtn = document.getElementById("showColorsBtn");
 const extraColorsContainer = document.getElementById("extraColorsContainer");
 const doubleSpeedBtn = document.getElementById("doubleSpeedBtn");
 const roundProgressContainer = document.getElementById("roundProgressContainer");
-const roundProgressCircle = document.querySelector("#roundProgressCircle .progress-circle");
+const roundProgressCircle = document.getElementById("roundProgressCircle");
+const timerWrapper = document.getElementById("timerWrapper");
 
 const TOTAL_ROUNDS = 40;
-const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * 12; // 2 * PI * radius (12)
 
 
 
@@ -1189,10 +1144,11 @@ function isLevelLocked(level) {
 }
 
 // Try to unlock next level (called after a game ends)
-function checkAndUnlockNextLevel(nLevel, accuracy, roundsPlayed) {
+function checkAndUnlockNextLevel(nLevel, accuracy, roundsPlayed, colorLoad) {
     // Only check if playing at the highest unlocked level
     // AND player completed enough rounds for a meaningful accuracy
-    if (nLevel === highestUnlockedLevel && accuracy >= UNLOCK_THRESHOLD && roundsPlayed >= UNLOCK_MIN_ROUNDS) {
+    // AND the average unique color load was above 80% of the maximum for this n level
+    if (nLevel === highestUnlockedLevel && accuracy >= UNLOCK_THRESHOLD && roundsPlayed >= UNLOCK_MIN_ROUNDS && colorLoad * 100 >= UNLOCK_THRESHOLD) {
         // Unlock next level (max 6)
         if (highestUnlockedLevel < 6) {
             highestUnlockedLevel++;
@@ -1432,6 +1388,11 @@ function applyDeactivatedCells() {
             overlayCells[index].classList.add("deactivated");
         }
     });
+
+    // Show a 1px grid outline whenever outer cells are hidden so the
+    // overall boundary stays clear to the player (center index 4 does not affect outer edge)
+    const hasOuterHidden = deactivatedCells.some(idx => idx !== 4);
+    document.getElementById("grid").classList.toggle("grid-outlined", hasOuterHidden);
 }
 
 // Convert deactivated cell indices to position objects for core.js
@@ -1464,7 +1425,7 @@ function saveLastActivityTimestamp() {
     }
 }
 
-// Check if player was away for more than 5 minutes
+// Check if player was away for more than 10 minutes
 function wasPlayerAwayTooLong() {
     if (!lastActivityTimestamp) return true; // first time playing, treat as away
     const timeSinceLastActivity = Date.now() - lastActivityTimestamp;
@@ -1677,7 +1638,7 @@ function nextStimulus() {
         coloredCellVisible = false;
         // Don't restore squish animation if it's running
         // Just let the cell disappear
-    }, IS_LOCAL_HOST ? DISPLAY_TIME / speedMultiplier : DISPLAY_TIME);
+    }, IS_LOCAL_HOST ? getAdaptiveDisplayTime() / speedMultiplier : getAdaptiveDisplayTime());
 
     updateRoundDisplay();
     updateStatsDisplay();
@@ -1705,10 +1666,11 @@ function nextStimulus() {
         updateGraphDisplay();
     }
 
-    // Monitor rolling average errors and end if too many mistakes
-    // Use last 10 trials FROM CURRENT ROUND to check for poor performance
-    if (nbackEngine && rounds >= 10) { // TODO how does this work once N level increases ?
-        if (shouldStopForErrors(getRecentTrialsInRound(10))) {
+    // Monitor performance and end if sustained poor performance detected
+    // Uses SPRT (Sequential Probability Ratio Test) from the engine,
+    // with fallback to error count check
+    if (nbackEngine && rounds >= 10) {
+        if (nbackEngine.shouldStopSession() || shouldStopForErrors(getRecentTrialsInRound(10))) {
             stopGame(true);
         }
     }
@@ -1888,14 +1850,19 @@ function startGame() {
 
     // Initialize cell hiding based on how long player was away
     if (wasPlayerAwayTooLong()) {
-        // Player was away > 5 min, reset everything and start fresh
+        // Player was away > 10 min, reset everything and start fresh
         deactivateCellHiding();
         accumulatedPlayTime = 0;
         layoutPlayTimeStart = 0;
         cellHidingActive = false;
-        console.log("Player was away > 5 min, starting with full grid");
+        // Reset adaptive engine so player warms up from minimum load again
+        if (nbackEngine) {
+            nbackEngine.reset();
+        }
+        console.log("Player was away > 10 min, starting with full grid + fresh ability model");
+
     } else {
-        // Player returned within 5 min
+        // Player returned within 10 min
         if (cellHidingActive) {
             // Cell hiding already active, check if layout still valid (based on play time)
             const layoutPlayTime = accumulatedPlayTime - layoutPlayTimeStart;
@@ -1928,27 +1895,14 @@ function startGame() {
     hideBanner();
     if (bannerStats) bannerStats.innerHTML = "";
 
-    // Quickly shrink progress bar back to small size
-    timerProgress.style.height = "8px";
-    timerProgress.style.overflow = "hidden";
-
     // Remove minute indicators and goal zone
     removeMinuteIndicators();
     removeGoalZone();
 
-    // Make progress bar container transparent during gameplay
-    timerProgress.style.background = "transparent";
-
-    // Hide the normal progress fill completely
+    // Hide daily timer bar visually during gameplay (keeps layout for stopBtn and roundProgressContainer)
+    timerProgress.style.visibility = "hidden";
     timerFill.style.display = "none";
-
-    // Create segmented progress bar (islands with gaps)
-    createSegmentedProgressBar();
-
-    // Initialize segment fills with current progress
-    const currentProgress = elapsedSeconds % CHUNK_SECONDS;
-    const currentPercent = (currentProgress / CHUNK_SECONDS) * 100;
-    updateSegmentedProgressBar(currentPercent);
+    timerProgress.style.height = "8px";
 
 
     // Hide color preview if showing
@@ -1969,7 +1923,7 @@ function startGame() {
 
     // Reset round progress circle to empty
     if (roundProgressCircle) {
-        roundProgressCircle.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE;
+        roundProgressCircle.style.setProperty('--fill-pct', '0%');
     }
 
     startBtn.disabled = true;
@@ -2003,7 +1957,7 @@ function startGame() {
 function scheduleNextStimulus() {
     if (!isRunning) return;
 
-    const delay = IS_LOCAL_HOST ? getRandomizedInterval() / speedMultiplier : getRandomizedInterval();
+    const delay = IS_LOCAL_HOST ? getAdaptiveInterval() / speedMultiplier : getAdaptiveInterval();
     intervalId = setTimeout(() => {
         if (!isRunning) return;
         nextStimulus();
@@ -2026,17 +1980,11 @@ function stopGame(autoEnded = false) {
         doubleSpeedBtn.style.fontWeight = "normal";
     }
 
-    // Remove segmented progress bar
-    removeSegmentedProgressBar();
-
-    // Show normal fill again
+    // Show daily timer bar on end screen
+    timerProgress.style.visibility = "";
     timerFill.style.display = "block";
-
-    // Expand progress bar
     timerProgress.style.height = "24px";
     timerProgress.style.overflow = "visible";
-
-    // Restore full opacity colors
     timerProgress.style.background = "#ddd";
     timerFill.style.background = "#57b9c6";
 
@@ -2102,11 +2050,7 @@ function stopGame(autoEnded = false) {
     startBtn.style.display = "inline-block";
     matchBtn.style.display = "none";
     stopBtn.style.display = "none";
-    if (rounds >= 1) {
-        roundProgressContainer.classList.add("end-screen");
-    } else {
-        roundProgressContainer.style.display = "none";
-    }
+    roundProgressContainer.style.display = "none";
 
     startBtn.disabled = false;
     stopBtn.disabled = true;
@@ -2171,8 +2115,7 @@ function updateRoundProgressCircle() {
     if (!roundProgressCircle) return;
 
     const progress = Math.min(rounds / TOTAL_ROUNDS, 1);
-    const offset = CIRCLE_CIRCUMFERENCE * (1 - progress);
-    roundProgressCircle.style.strokeDashoffset = offset;
+    roundProgressCircle.style.setProperty('--fill-pct', (progress * 100).toFixed(1) + '%');
 }
 
 // ------------------ Results ------------------
@@ -2188,6 +2131,7 @@ function showResults() {
 
     // Get memory load info (session average)
     let memoryLoadHtml = '';
+    let loadPercent = 0; // ratio 0..1, used for unlock check
     const roundTrials = getCurrentRoundTrials();
     if (nbackEngine && roundTrials.length > 0) {
         const maxUniqueColors = n + 1;
@@ -2197,7 +2141,7 @@ function showResults() {
         const roundedAvg = Math.round(avgLoad * 10) / 10; // round to 1 decimal
 
         // Traffic light color based on load percentage
-        const loadPercent = avgLoad / maxUniqueColors;
+        loadPercent = avgLoad / maxUniqueColors;
         let loadColor;
         if (loadPercent <= 0.33) {
             loadColor = COLORS.find(c => c.name === "green").color; // easy
@@ -2214,7 +2158,7 @@ function showResults() {
         const loadBar = '█'.repeat(filledSegments) + '░'.repeat(emptySegments);
         memoryLoadHtml = `
             <div style="font-size: 12px; color: #666; margin-top: 12px;">
-                Memory Load:  <span style="color: ${loadColor}; border: 0.7px solid #0000007f; padding: 1px 1px; border-radius: 3px;">${loadBar}</span>   ${roundedAvg} / ${maxUniqueColors}
+                Memory Load:  <span style="color: ${loadColor}; border: 0.7px solid #0000007f; padding: 1px 1px; border-radius: 3px;">${loadBar}</span>&nbsp&nbsp${roundedAvg} / ${maxUniqueColors}
             </div>`;
     }
 
@@ -2271,7 +2215,7 @@ function showResults() {
             display.textContent = percentage;
 
             // Check if we should unlock the next level (requires minimum rounds)
-            checkAndUnlockNextLevel(n, percentage, rounds);
+            checkAndUnlockNextLevel(n, percentage, rounds, loadPercent);
 
             // Update button colors immediately after saving accuracy
             updateNBackButtons();
@@ -2443,8 +2387,7 @@ function updateStatsDisplay() {
     }
 
     const stats = nbackEngine.getStats();
-    const accuracyPercent = Math.round(stats.accuracy * 100);
-    const confidencePercent = Math.round(stats.confidence * 100);
+    const flowPercent = Math.round((stats.flowScore || 0) * 100);
 
     const BOX_WIDTH = 50;
 
@@ -2465,13 +2408,23 @@ function updateStatsDisplay() {
     display += makeLine(`Trials: ${stats.totalTrials}`);
     display += '├────────────────────────────────────────────────────┤\n';
 
-    // Performance
-    const accuracyBar = '▓'.repeat(Math.floor(accuracyPercent / 10)) + '░'.repeat(10 - Math.floor(accuracyPercent / 10));
-    display += makeLine(`Accuracy:   ${String(accuracyPercent).padStart(3)}% ${accuracyBar}`);
+    // Ability (theta / d')
+    const theta = (stats.theta || 0).toFixed(2);
+    const thetaVal2 = stats.theta || 0;
+    const thetaLabel = thetaVal2 >= 2.5 ? 'Excellent'
+        : thetaVal2 >= 1.6 ? 'Good'
+            : thetaVal2 >= 1.0 ? 'Okayish'
+                : 'Guessing';
+    const thetaTrend = (stats.thetaTrend || 0).toFixed(4);
+    const trendArrow = stats.thetaTrend > 0.005 ? '<strong>↑</strong>' : stats.thetaTrend < -0.005 ? '<strong>↓</strong>' : '<strong>→</strong>';
+    display += makeLine(`<strong>Ability (d')</strong>`);
+    display += makeLine(`Theta: ${theta} ${trendArrow} (trend: ${thetaTrend}) - ${thetaLabel}`);
 
-    // Confidence metric
-    const confidenceBar = '▓'.repeat(Math.floor(confidencePercent / 10)) + '░'.repeat(10 - Math.floor(confidencePercent / 10));
-    display += makeLine(`Confidence: ${String(confidencePercent).padStart(3)}% ${confidenceBar}`);
+    // Flow and Fatigue
+    const fatiguePercent = Math.round((stats.fatigueIndex || 0) * 100);
+    const flowBar = '▓'.repeat(Math.floor(flowPercent / 20)) + '░'.repeat(5 - Math.floor(flowPercent / 20));
+    display += makeLine(`Flow:    ${String(flowPercent).padStart(3)}% ${flowBar}`);
+    display += makeLine(`Fatigue: ${String(fatiguePercent).padStart(3)}%`);
 
     display += '├────────────────────────────────────────────────────┤\n';
 
@@ -2483,7 +2436,7 @@ function updateStatsDisplay() {
     const maxUniqueColors = stats.workingMemory.maxUniqueColors;
     const progressToMax = stats.workingMemory.progressToMax;
 
-    // Target unique colors - the step function target
+    // Target unique colors
     const targetBar = '█'.repeat(targetUniqueColors) + '░'.repeat(maxUniqueColors - targetUniqueColors);
     const progressPercent = Math.round(progressToMax * 100);
     display += makeLine(`Target Colors:    ${targetBar} ${targetUniqueColors}/${maxUniqueColors} (${progressPercent}%)`);
@@ -2492,46 +2445,42 @@ function updateStatsDisplay() {
     const loadBar = '█'.repeat(Math.floor(currentLoad)) + '░'.repeat(Math.floor(maxUniqueColors - currentLoad));
     display += makeLine(`Current Load:     ${loadBar} ${currentLoad}/${maxUniqueColors}`);
 
-    // Performance EMA and pressure
-    const performanceEMA = stats.workingMemory.performanceEMA || 0.75;
-    const emaPercent = Math.round(performanceEMA * 100);
-    const emaBar = '█'.repeat(Math.floor(performanceEMA * 20)) + '░'.repeat(20 - Math.floor(performanceEMA * 20));
-    display += makeLine(`Performance EMA:  ${emaBar} ${emaPercent}%`);
+    // Entropy and match rate
+    const targetEntropy = (stats.targetEntropy || 0).toFixed(2);
+    const windowEntropy = (stats.windowEntropy || 0).toFixed(2);
+    display += makeLine(`Match Rate: ${((stats.matchRate || 0.30) * 100).toFixed(0)}% | Speed: ${((stats.stimulusInterval || 1.0) * 100).toFixed(0)}%`);
+    display += makeLine(`Entropy: target=${targetEntropy} window=${windowEntropy}`);
 
-    const increasePressure = stats.workingMemory.increasePressure || 0;
-    const decreasePressure = stats.workingMemory.decreasePressure || 0;
-    display += makeLine(`Pressure: ↑${increasePressure} ↓${decreasePressure}`);
+    // PI controller state
+    const piIntegral = (stats.workingMemory.piIntegral || 0).toFixed(2);
+    display += makeLine(`PI Integral: ${piIntegral}`);
 
-    // Capacity expansion status
+    // Player capacity status
     display += '├────────────────────────────────────────────────────┤\n';
 
-    let statusLine = '';
-
-    // Priority 1: Recovery status
-    if (stats.isRecovery) {
-        statusLine = `<strong>Status:</strong> Recovery block (${stats.driftDetector.recoveryRemaining} left) 🔄`;
-    }
-    // Priority 2: Normal status based on progress
-    else if (progressPercent >= 90) {
-        statusLine = `<strong>Status:</strong> Near full capacity! 🎯`;
-    } else if (progressPercent >= 75) {
-        statusLine = `<strong>Status:</strong> High capacity 📈`;
+    // Capacity progress label
+    let capacityLabel = '';
+    if (progressPercent >= 90) {
+        capacityLabel = 'near max';
     } else if (progressPercent >= 50) {
-        statusLine = `<strong>Status:</strong> Expanding capacity 📊`;
+        capacityLabel = 'expanding';
     } else {
-        statusLine = `<strong>Status:</strong> Building foundation 🏗️`;
+        capacityLabel = 'building';
     }
 
-    display += makeLine(statusLine);
+    display += makeLine(`<strong>Status:</strong> Capacity ${capacityLabel} (${progressPercent}%)`);
 
-    // Cognitive state info
-    if (stats.driftDetector) {
-        const drift = stats.driftDetector;
-        display += '├────────────────────────────────────────────────────┤\n';
-        display += makeLine(`<strong>Cognitive State</strong>`);
-        display += makeLine(`Avg RT: ${drift.avgRT}ms | Variability: ${drift.rtVariability}`);
-        display += makeLine(`RT Trend: ${drift.slowdownTrend}`);
+    // SPRT session monitor
+    if (stats.sprtStatus) {
+        const sprt = stats.sprtStatus;
+        const sprtBar = sprt.logLR.toFixed(2);
+        display += makeLine(`SPRT: ${sprtBar} [${sprt.acceptBound.toFixed(1)}..${sprt.stopBound.toFixed(1)}] ${sprt.decision}`);
     }
+
+    // Cognitive state info (RT stats)
+    display += '├────────────────────────────────────────────────────┤\n';
+    display += makeLine(`<strong>Cognitive State</strong>`);
+    display += makeLine(`RT Median: ${Math.round(stats.rtMedian || 800)}ms | CV: ${(stats.rtCV || 0).toFixed(3)}`);
 
     // Cell hiding timing info
     display += '├────────────────────────────────────────────────────┤\n';
@@ -2548,9 +2497,8 @@ function updateStatsDisplay() {
         const warmupRemaining = Math.max(0, WARMUP_DURATION - totalPlayTime);
         const warmupSecs = Math.ceil(warmupRemaining / 1000);
         const warmupProgress = Math.min(100, Math.round((totalPlayTime / WARMUP_DURATION) * 100));
-        const warmupBar = '▓'.repeat(Math.floor(warmupProgress / 10)) + '░'.repeat(10 - Math.floor(warmupProgress / 10));
         display += makeLine(`Mode: Warmup (full grid)`);
-        display += makeLine(`Warmup: ${warmupBar} ${warmupProgress}% (${warmupSecs}s play)`);
+        display += makeLine(`Warmup: ${warmupProgress}% (${warmupSecs}s play)`);
     } else {
         // Cell hiding active (use play time for layout age)
         const layoutPlayTime = totalPlayTime - layoutPlayTimeStart;
@@ -2558,13 +2506,12 @@ function updateStatsDisplay() {
         const layoutRemaining = Math.max(0, LAYOUT_DURATION - layoutPlayTime);
         const layoutSecs = Math.ceil(layoutRemaining / 1000);
         const layoutProgress = Math.min(100, Math.round((layoutPlayTime / LAYOUT_DURATION) * 100));
-        const layoutBar = '▓'.repeat(Math.floor(layoutProgress / 10)) + '░'.repeat(10 - Math.floor(layoutProgress / 10));
         display += makeLine(`Mode: Cell hiding active`);
         display += makeLine(`Hidden cells: ${deactivatedCells.length} [${deactivatedCells.join(', ') || 'none'}]`);
         if (layoutExpired) {
             display += makeLine(`Layout: EXPIRED (new layout on next round)`);
         } else {
-            display += makeLine(`Layout: ${layoutBar} ${layoutProgress}% (${layoutSecs}s play left)`);
+            display += makeLine(`Layout: ${layoutProgress}% (${layoutSecs}s play left)`);
         }
     }
 

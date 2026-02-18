@@ -41,7 +41,7 @@
     <meta name="apple-mobile-web-app-title" content="BrainZag">
 
     <!-- Android theme -->
-    <meta name="theme-color" content="#ffefd9">
+    <meta name="theme-color" content="#fcefda">
 
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
@@ -72,7 +72,7 @@
         body {
             font-family: Arial, sans-serif;
             text-align: center;
-            background: #ffefd9ec;
+            background: #fcefda;
             margin: 0;
             padding: 20px;
             padding-top: max(20px, env(safe-area-inset-top)); /* iPhone notch */
@@ -88,55 +88,37 @@
             font-size: 12px;
             padding: 6px 10px;
             position: absolute;
-            top: 100%;
+            top: 0;
             right: 0;
-            margin-top: 5px;
             min-height: 30px;
         }
 
         /* Round Progress Circle (shows during gameplay) */
         #roundProgressContainer {
             position: absolute;
-            top: 100%;
+            top: 0;
             left: 0;
-            margin-top: 5px;
-            width: 30px;
-            height: 30px;
+            width: 20px;
+            height: 20px;
             display: none;
         }
 
         #roundProgressCircle {
             width: 100%;
             height: 100%;
-            transform: rotate(-90deg);
-        }
-
-        #roundProgressCircle .bg-circle {
-            fill: none;
-            stroke: rgba(200, 200, 200, 0.5);
-            stroke-width: 3;
-        }
-
-        #roundProgressCircle .progress-circle {
-            fill: none;
-            stroke: rgba(150, 150, 150, 0.6);
-            stroke-width: 3;
-            stroke-linecap: round;
-            stroke-dasharray: 75.4; /* 2 * PI * 12 (radius) */
-            stroke-dashoffset: 75.4; /* starts empty */
-            transition: stroke-dashoffset 0.3s ease;
+            border-radius: 50%;
+            border: 1px solid rgba(150, 150, 150, 0.6);
+            background: conic-gradient(from 0deg, rgba(150, 150, 150, 0.6) 0% var(--fill-pct, 0%), transparent var(--fill-pct, 0%) 100%);
+            box-sizing: border-box;
         }
 
         #roundProgressContainer.end-screen {
             cursor: pointer;
         }
 
-        #roundProgressContainer.end-screen .progress-circle {
-            stroke: #57b9c6;
-        }
-
-        #roundProgressContainer.end-screen .bg-circle {
-            stroke: rgba(200, 200, 200, 0.3);
+        #roundProgressContainer.end-screen #roundProgressCircle {
+            border-color: #57b9c6;
+            background: conic-gradient(from 0deg, #57b9c6 0% var(--fill-pct, 0%), transparent var(--fill-pct, 0%) 100%);
         }
 
         /* Rounds popup tooltip */
@@ -434,7 +416,12 @@
             grid-template-rows: repeat(3, 1fr);
             gap: 1px;
             position: relative;
+            border-radius: 8px;
             transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        #grid.grid-outlined {
+            outline: 1px solid rgba(195, 185, 185, 0.4);
         }
 
         /* Mobile: grid fills most of screen width */
@@ -477,16 +464,16 @@
         }
 
         .bg-cell {
-            background: #c3b9b9;
+            background: #b5afaf;
             border-radius: 0px;
             transition: transform 0.12s ease-out, opacity 0.3s ease-out, background 0.3s ease-out;
             transform-origin: center;
         }
 
         .bg-cell.deactivated {
-            background: #c3b9b9;
+            background: #b5afaf;
             pointer-events: none;
-            opacity: 0.2;
+            opacity: 0;
         }
 
         .bg-cell.squish-right {
@@ -844,7 +831,7 @@
             transform: translate(-50%, -50%);
             width: 92%;
             min-height: 180px;
-            background: rgba(255, 246, 231, 0.97);
+            background: rgba(255, 246, 232, 0.97);
             border-radius: 16px;
             outline: 1px solid rgba(0, 0, 0, 0.82);
             outline-offset: -1px;
@@ -960,24 +947,6 @@
             }
         }
 
-        /* Focus Mode Vignette Overlay */
-        #focusVignette {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 1000;
-            opacity: 0;
-            transition: opacity 0.5s ease;
-        }
-
-        /* Darken body background during focus mode */
-        body.focus-mode {
-            transition: background 0.5s ease;
-        }
-
         /* Daily playtime popup tooltip */
         #playtimePopup {
             position: absolute;
@@ -1030,11 +999,11 @@
             }
             .side-blur.left {
                 left: 0;
-                background: linear-gradient(to right, rgba(200, 180, 150, 0.4) 0%, rgba(200, 180, 150, 0) 100%);
+                background: linear-gradient(to right, rgba(196, 178, 152, 0.4) 0%, rgba(200, 180, 150, 0) 100%);
             }
             .side-blur.right {
                 right: 0;
-                background: linear-gradient(to left, rgba(200, 180, 150, 0.4) 0%, rgba(200, 180, 150, 0) 100%);
+                background: linear-gradient(to left, rgba(196, 178, 152, 0.4) 0%, rgba(200, 180, 150, 0) 100%);
             }
         }
 
@@ -1056,9 +1025,6 @@
     <!-- Desktop: blurred side panels -->
     <div class="side-blur left"></div>
     <div class="side-blur right"></div>
-
-    <!-- Focus Mode Vignette Overlay (darkens periphery during sustained play) -->
-    <div id="focusVignette"></div>
 
     <div id="controls">
         <div id="nBackButtons">
@@ -1090,10 +1056,7 @@
             <div id="playtimePopup">Daily session tracker</div>
         </div>
         <div id="roundProgressContainer">
-            <svg id="roundProgressCircle" viewBox="0 0 30 30">
-                <circle class="bg-circle" cx="15" cy="15" r="12"/>
-                <circle class="progress-circle" cx="15" cy="15" r="12"/>
-            </svg>
+            <div id="roundProgressCircle"></div>
             <div id="roundsPopup">Played rounds: 0</div>
         </div>
         <button id="stopBtn" disabled style="display: none;">Break</button>

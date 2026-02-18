@@ -4,13 +4,14 @@
  * License: See LICENSE file
  * Copyright (c) 2026 BrainZag
  *
- * Core algorithms: adaptive training, cognitive drift detection,
- * color sequence generation, and performance tracking.
+ * Core algorithms: unified cognitive adaptive engine using
+ * Signal Detection Theory, Control Theory, Sequential Testing,
+ * Flow Theory, and Entropy based load management.
  *
 */
 
 // ============================================================================
-// LOW-PASS FILTER (smooth accuracy tracking)
+// LOW-PASS FILTER (utility, used by game.js ReactionTimer)
 // ============================================================================
 
 class LowPassFilter {
@@ -24,183 +25,23 @@ class LowPassFilter {
 }
 
 // ============================================================================
-// COGNITIVE DRIFT DETECTOR - Detect fatigue and performance degradation
-// ============================================================================
-
-class CognitiveDriftDetector {
-  constructor() {
-    this.reactionTimes = [];
-    this.recentAccuracy = 0.75;
-    this.accuracyFilter = new LowPassFilter(0.1);
-    this.rtFilter = new LowPassFilter(0.15);
-    this.avgRT = 800;
-
-    // Drift indicators
-    this.rtVariability = 0;
-    this.slowdownTrend = 0;
-    this.easyTrialSlowdowns = 0;
-    this.totalEasyTrials = 0;
-
-    // State
-    this.inRecoveryBlock = false;
-    this.recoveryTrialsRemaining = 0;
-    this.confidenceScore = 1.0;
-
-    // History window for variability calculation
-    this.windowSize = 10;
-  }
-
-  recordTrial(correct, reactionTime, targetLoad, isValid) {
-    if (!isValid) return;
-
-    // Update accuracy
-    this.recentAccuracy = this.accuracyFilter.apply(this.recentAccuracy, correct ? 1 : 0);
-
-    // Update RT
-    this.avgRT = this.rtFilter.apply(this.avgRT, reactionTime);
-    this.reactionTimes.push(reactionTime);
-
-    // Keep window size limited
-    if (this.reactionTimes.length > this.windowSize * 2) {
-      this.reactionTimes.shift();
-    }
-
-    // Calculate RT variability (coefficient of variation)
-    if (this.reactionTimes.length >= this.windowSize) {
-      const recent = this.reactionTimes.slice(-this.windowSize);
-      const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-      const variance = recent.reduce((sum, rt) => sum + Math.pow(rt - mean, 2), 0) / recent.length;
-      const stdDev = Math.sqrt(variance);
-      this.rtVariability = mean > 0 ? stdDev / mean : 0;
-    }
-
-    // Detect slowdown trend (comparing recent vs historical)
-    // Inverted: positive = improving (faster), negative = slowing down
-    if (this.reactionTimes.length >= this.windowSize * 2) {
-      const older = this.reactionTimes.slice(0, this.windowSize);
-      const recent = this.reactionTimes.slice(-this.windowSize);
-      const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
-      const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-      this.slowdownTrend = (olderAvg - recentAvg) / olderAvg; // inverted: positive = faster
-    }
-
-    // Track easy trial slowdowns (suspiciously slow on easy trials)
-    if (targetLoad < 2.0) {
-      this.totalEasyTrials++;
-      if (reactionTime > this.avgRT * 1.5) {
-        this.easyTrialSlowdowns++;
-      }
-    }
-
-    // Update confidence score
-    this.updateConfidence();
-  }
-
-  updateConfidence() {
-    // Composite confidence score from multiple factors
-    let confidence = 1.0;
-
-    // Factor 1: Accuracy (0.8 - 1.0 range)
-    const accuracyFactor = Math.min(1.0, this.recentAccuracy / 0.85);
-    confidence *= (0.3 * accuracyFactor + 0.7); // Weight 30%
-
-    // Factor 2: RT Speed (faster = higher confidence)
-    // Assume optimal RT is around 700ms, slower reduces confidence
-    const rtFactor = Math.max(0.5, Math.min(1.0, 700 / this.avgRT));
-    confidence *= (0.2 * rtFactor + 0.8); // Weight 20%
-
-    // Factor 3: RT Variability (lower = higher confidence)
-    // CV < 0.2 is good, > 0.4 is concerning
-    const variabilityFactor = Math.max(0.5, Math.min(1.0, 1.0 - (this.rtVariability / 0.4)));
-    confidence *= (0.2 * variabilityFactor + 0.8); // Weight 20%
-
-    // Factor 4: RT Trend (positive = faster/better, negative = slower/worse)
-    // +10% faster gives boost, -10% slower reduces confidence
-    const trendFactor = Math.max(0.5, Math.min(1.0, 1.0 + this.slowdownTrend * 2));
-    confidence *= (0.15 * trendFactor + 0.85); // Weight 15%
-
-    // Factor 5: Easy Trial Performance (no slowdowns = 1.0)
-    const easyTrialFactor = this.totalEasyTrials > 0
-      ? Math.max(0.6, 1.0 - (this.easyTrialSlowdowns / this.totalEasyTrials))
-      : 1.0;
-    confidence *= (0.15 * easyTrialFactor + 0.85); // Weight 15%
-
-    this.confidenceScore = Math.max(0.3, Math.min(1.0, confidence));
-  }
-
-  detectDrift() {
-    // Drift detected if confidence drops below threshold
-    const driftThreshold = 0.65;
-    return this.confidenceScore < driftThreshold && !this.inRecoveryBlock;
-  }
-
-  startRecoveryBlock() {
-    this.inRecoveryBlock = true;
-    this.recoveryTrialsRemaining = 5; // 5 easier trials
-  }
-
-  updateRecoveryBlock() {
-    if (!this.inRecoveryBlock) return;
-
-    this.recoveryTrialsRemaining--;
-    if (this.recoveryTrialsRemaining <= 0) {
-      this.inRecoveryBlock = false;
-      // Reset easy trial tracking after recovery
-      this.easyTrialSlowdowns = 0;
-      this.totalEasyTrials = 0;
-    }
-  }
-
-  getConfidence() {
-    return this.confidenceScore;
-  }
-
-  isInRecovery() {
-    return this.inRecoveryBlock;
-  }
-
-  getStats() {
-    return {
-      confidence: this.confidenceScore,
-      recentAccuracy: this.recentAccuracy,
-      avgRT: Math.round(this.avgRT),
-      rtVariability: this.rtVariability.toFixed(3),
-      slowdownTrend: (this.slowdownTrend * 100).toFixed(1) + '%',
-      inRecovery: this.inRecoveryBlock,
-      recoveryRemaining: this.recoveryTrialsRemaining
-    };
-  }
-
-  reset() {
-    this.reactionTimes = [];
-    this.rtVariability = 0;
-    this.slowdownTrend = 0;
-    this.easyTrialSlowdowns = 0;
-    this.totalEasyTrials = 0;
-    this.confidenceScore = 1.0;
-  }
-}
-
-// ============================================================================
 // WORKING MEMORY STATE TRACKER
 // ============================================================================
 
 class WorkingMemoryState {
   constructor(n) {
-    this.n = n; // Fixed N-back level (e.g., 2, 3, 7)
-    this.recentColors = []; // Last N+1 colors shown (user needs current + previous N)
-    this.currentLoad = 0; // Unique colors in memory window (1 to N+1)
+    this.n = n;
+    this.recentColors = [];
+    this.currentLoad = 0;
   }
 
   addColor(color) {
     this.recentColors.push(color);
 
-    // Keep only the N+1 most recent colors (current + previous N positions)
     if (this.recentColors.length > this.n + 1) {
       this.recentColors.shift();
     }
 
-    // Calculate load: count unique colors in window
     this.currentLoad = new Set(this.recentColors).size;
   }
 
@@ -211,145 +52,387 @@ class WorkingMemoryState {
   getCurrentLoad() {
     return this.currentLoad;
   }
+}
 
-  // Check if color at position N-back matches current
-  checkNBackMatch(currentColor) {
-    if (this.recentColors.length < this.n) {
-      return false;
+// ============================================================================
+// D-PRIME (signal detection sensitivity)
+// ============================================================================
+
+function computeDPrime(hitRate, faRate) {
+  const cappedHitRate = Math.max(0.01, Math.min(0.99, hitRate));
+  const cappedFaRate = Math.max(0.01, Math.min(0.99, faRate));
+
+  function invNorm(p) {
+    const a1 = -3.969683028665376e1;
+    const a2 = 2.209460984245205e2;
+    const a3 = -2.759285104469687e2;
+    const a4 = 1.383577518672690e2;
+    const a5 = -3.066479806614716e1;
+    const a6 = 2.506628277459239e0;
+    const b1 = -5.447609879822406e1;
+    const b2 = 1.615858368580409e2;
+    const b3 = -1.556989798598866e2;
+    const b4 = 6.680131188771972e1;
+    const b5 = -1.328068155288572e1;
+    const c1 = -7.784894002430293e-3;
+    const c2 = -3.223964580411365e-1;
+    const c3 = -2.400758277161838e0;
+    const c4 = -2.549732539343734e0;
+    const c5 = 4.374664141464968e0;
+    const c6 = 2.938163982698783e0;
+    const d1 = 7.784695709041462e-3;
+    const d2 = 3.224671290700398e-1;
+    const d3 = 2.445134137142996e0;
+    const d4 = 3.754408661907416e0;
+    const pLow = 0.02425;
+    const pHigh = 1 - pLow;
+
+    let q, r;
+    if (p < pLow) {
+      q = Math.sqrt(-2 * Math.log(p));
+      return (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+    } else if (p <= pHigh) {
+      q = p - 0.5;
+      r = q * q;
+      return (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1);
+    } else {
+      q = Math.sqrt(-2 * Math.log(1 - p));
+      return -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
     }
-    const nBackColor = this.recentColors[this.recentColors.length - this.n];
-    return currentColor === nBackColor;
+  }
+
+  return invNorm(cappedHitRate) - invNorm(cappedFaRate);
+}
+
+// ============================================================================
+// ABILITY MODEL (rolling Bayesian d' as master ability signal)
+// ============================================================================
+
+class AbilityModel {
+  constructor() {
+    // Rolling window of recent trial outcomes for d' computation.
+    // Using a window instead of cumulative counts ensures theta responds
+    // to recent performance, not ancient history from 40 trials ago.
+    this.trialWindow = [];
+    this.windowSize = 30;       // Last 30 trials for d' computation
+
+    // Rolling d' (theta) with EMA smoothing
+    this.theta = 1.5;           // Start at moderate ability
+    this.thetaAlpha = 0.15;     // EMA smoothing for theta
+    this.thetaHistory = [];     // Last 20 theta values for trend
+    this.thetaHistorySize = 20;
+
+    // Reaction time tracking
+    this.reactionTimes = [];
+    this.rtWindowSize = 20;
+
+    // Total trial count (cumulative, not windowed)
+    this.totalTrials = 0;
+  }
+
+  recordTrial(wasMatch, userClicked, reactionTime) {
+    this.totalTrials++;
+
+    // Store trial outcome in rolling window
+    this.trialWindow.push({ wasMatch, userClicked });
+    if (this.trialWindow.length > this.windowSize) {
+      this.trialWindow.shift();
+    }
+
+    // Compute d' from the rolling window using pseudo counts
+    let hits = 0, misses = 0, falseAlarms = 0, correctRejections = 0;
+    for (const t of this.trialWindow) {
+      if (t.wasMatch && t.userClicked) hits++;
+      else if (t.wasMatch && !t.userClicked) misses++;
+      else if (!t.wasMatch && t.userClicked) falseAlarms++;
+      else correctRejections++;
+    }
+
+    const targets = hits + misses;
+    const nonTargets = falseAlarms + correctRejections;
+    const hitRate = (hits + 0.5) / (targets + 1);
+    const faRate = (falseAlarms + 0.5) / (nonTargets + 1);
+    const rawDPrime = computeDPrime(hitRate, faRate);
+
+    // EMA smooth the theta
+    this.theta = this.theta * (1 - this.thetaAlpha) + rawDPrime * this.thetaAlpha;
+
+    // Store theta history for trend analysis
+    this.thetaHistory.push(this.theta);
+    if (this.thetaHistory.length > this.thetaHistorySize) {
+      this.thetaHistory.shift();
+    }
+
+    // Store RT
+    if (reactionTime > 0) {
+      this.reactionTimes.push(reactionTime);
+      if (this.reactionTimes.length > this.rtWindowSize * 2) {
+        this.reactionTimes.shift();
+      }
+    }
+  }
+
+  // Slope of theta over recent history (positive = improving)
+  getThetaTrend() {
+    const h = this.thetaHistory;
+    if (h.length < 5) return 0;
+
+    // Simple linear regression slope
+    const n = h.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    for (let i = 0; i < n; i++) {
+      sumX += i;
+      sumY += h[i];
+      sumXY += i * h[i];
+      sumX2 += i * i;
+    }
+    const denom = n * sumX2 - sumX * sumX;
+    if (denom === 0) return 0;
+    return (n * sumXY - sumX * sumY) / denom;
+  }
+
+  // RT statistics
+  getRTStats() {
+    const rts = this.reactionTimes.slice(-this.rtWindowSize);
+    if (rts.length < 3) {
+      return { median: 800, p90: 1200, cv: 0.2 };
+    }
+
+    const sorted = [...rts].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const p90 = sorted[Math.floor(sorted.length * 0.9)];
+
+    const mean = rts.reduce((a, b) => a + b, 0) / rts.length;
+    const variance = rts.reduce((s, rt) => s + (rt - mean) ** 2, 0) / rts.length;
+    const cv = mean > 0 ? Math.sqrt(variance) / mean : 0;
+
+    return { median, p90, cv };
+  }
+
+  // Fatigue composite: RT tail growth + RT variability + negative theta trend
+  // Calibrated so normal human RT variability (CV 0.25-0.35, tail ratio 1.3-1.5)
+  // reads near 0%. Only genuine fatigue signals (CV > 0.4, tail > 1.7) register.
+  getFatigueIndex() {
+    const rt = this.getRTStats();
+    const trend = this.getThetaTrend();
+
+    // RT tail ratio: normal range is 1.2-1.5, fatigue starts at 1.6+
+    const tailRatio = rt.median > 0 ? rt.p90 / rt.median : 1.0;
+    const tailComponent = Math.max(0, (tailRatio - 1.6) / 0.6); // 0 at 1.6, 1.0 at 2.2
+
+    // CV component: normal human CV is 0.2-0.35, fatigue starts at 0.4+
+    const cvComponent = Math.max(0, (rt.cv - 0.4) / 0.3); // 0 at 0.4, 1.0 at 0.7
+
+    // Trend component: negative trend = fatigued
+    const trendComponent = Math.max(0, -trend * 10);
+
+    return Math.min(1.0, (tailComponent + cvComponent + trendComponent) / 3);
+  }
+
+  // Flow score: good ability + low variability + positive trend
+  // A perfect player with normal RT variability should reach 85-95%.
+  getFlowScore() {
+    const rt = this.getRTStats();
+    const trend = this.getThetaTrend();
+
+    // Normalize theta: 0 at theta=0, 1.0 at theta=2.5 (not 3.0, so good players saturate)
+    const normalizedTheta = Math.max(0, Math.min(1, this.theta / 2.5));
+
+    // CV bonus: normal CV (0.2-0.35) should still give a decent bonus
+    // 1.0 at CV=0, 0.5 at CV=0.3, 0 at CV=0.6
+    const cvBonus = Math.max(0, Math.min(1, 1 - rt.cv / 0.6));
+
+    // Positive trend is good for flow
+    const trendBonus = Math.max(0, Math.min(0.3, trend * 5));
+
+    // Weights: theta 55%, CV 25%, trend 20%
+    return Math.min(1.0, normalizedTheta * 0.55 + cvBonus * 0.25 + trendBonus * 0.2);
+  }
+
+  // Map theta to 0..1 for backward compatibility with performanceEMA display
+  getNormalizedPerformance() {
+    // theta 0 maps to ~0.3, theta 1.8 maps to ~0.75, theta 3.5 maps to ~1.0
+    return Math.max(0, Math.min(1, 0.3 + this.theta * 0.2));
+  }
+
+  // Get current SDT counts from the rolling window
+  getSDTCounts() {
+    let hits = 0, misses = 0, falseAlarms = 0, correctRejections = 0;
+    for (const t of this.trialWindow) {
+      if (t.wasMatch && t.userClicked) hits++;
+      else if (t.wasMatch && !t.userClicked) misses++;
+      else if (!t.wasMatch && t.userClicked) falseAlarms++;
+      else correctRejections++;
+    }
+    return { hits, misses, falseAlarms, correctRejections };
+  }
+
+  getStats() {
+    const rt = this.getRTStats();
+    const sdt = this.getSDTCounts();
+    return {
+      theta: this.theta,
+      thetaTrend: this.getThetaTrend(),
+      flowScore: this.getFlowScore(),
+      fatigueIndex: this.getFatigueIndex(),
+      rtMedian: rt.median,
+      rtP90: rt.p90,
+      rtCV: rt.cv,
+      totalTrials: this.totalTrials,
+      hits: sdt.hits,
+      misses: sdt.misses,
+      falseAlarms: sdt.falseAlarms,
+      correctRejections: sdt.correctRejections
+    };
+  }
+
+  reset() {
+    this.trialWindow = [];
+    this.theta = 1.5;
+    this.thetaHistory = [];
+    this.reactionTimes = [];
+    this.totalTrials = 0;
   }
 }
 
 // ============================================================================
-// UNIQUE COLOR STEP CONTROLLER
+// DIFFICULTY CONTROLLER (PI controller targeting ideal engagement zone)
 // ============================================================================
 
-class UniqueColorController {
+class DifficultyController {
   constructor(n) {
     this.n = n;
 
+    // PI controller state
+    this.targetTheta = 1.8;     // Ideal engagement zone
+    this.Kp = 0.3;              // Proportional gain
+    this.Ki = 0.05;             // Integral gain
+    this.integral = 0;
+    this.integralMax = 3.0;     // Anti windup clamp
+
+    // Output variables
+    // Start at 0 = minimum load (2 unique colors). Player must earn higher load.
+    this.targetEntropy = 0.0;
+    this.matchRate = 0.30;      // Dynamic match rate
+    this.stimulusInterval = 1.0; // Speed multiplier (1.0 = normal)
+
+    // Unique colors (derived from entropy)
     this.minUniqueColors = 2;
     this.maxUniqueColors = n + 1;
     this.currentUniqueColors = 2;
 
-    // Smoothed performance signal
-    this.performanceEMA = 0.75;
-    this.alpha = 0.15; // responsiveness (higher = faster reaction)
+    // N-adaptive step hold: scale with the color range so higher N
+    // levels dont require unreachable trial counts to progress.
+    // N=2: range=1, hold=6 increase / 3 decrease
+    // N=3: range=2, hold=3 increase / 2 decrease
+    // N=8: range=7, hold=2 increase / 1 decrease
+    const colorRange = this.maxUniqueColors - this.minUniqueColors;
+    this.stepHoldIncrease = Math.max(2, Math.round(6 / colorRange));
+    this.stepHoldDecrease = Math.max(1, Math.round(3 / colorRange));
+    this.stepHoldCounter = 0;
+    this.pendingUniqueColors = 2;
 
-    // Pressure counters
-    this.increasePressure = 0;
-    this.decreasePressure = 0;
-
-    // Thresholds (asymmetric by design)
-    this.increaseThreshold = 0.88;
-    this.decreaseThreshold = 0.62;
-
-    // How much pressure needed
-    this.increasePressureLimit = 6;
-    this.decreasePressureLimit = 3;
-
-    // Correct rejection tracking (for deferred micro-reward)
-    this.correctRejectionStreak = 0;
-    this.rejectionWindow = n + 1; // Window length needed to earn credit
-    this.rejectionReward = 0.05; // Very small delayed reward // TODO value too small ?
+    // N-adaptive entropy climb rate: higher N means larger range to traverse,
+    // so the per trial delta needs to be proportionally larger.
+    // Floor of 0.06 ensures N=2 (range=1) can still reach max in 40 trials.
+    // N=2: range=1, climbRate=0.06, dropRate=0.12
+    // N=3: range=2, climbRate=0.06, dropRate=0.12
+    // N=4: range=3, climbRate=0.075, dropRate=0.15
+    // N=8: range=7, climbRate=0.12, dropRate=0.24
+    this.entropyClimbRate = Math.min(0.12, Math.max(0.06, 0.03 + 0.015 * colorRange));
+    this.entropyDropRate = this.entropyClimbRate * 2; // Always 2x faster to drop
+    // No LPF on entropy. The step hold counter is the sole gate preventing
+    // jumpy color count changes. Direct accumulation ensures a flawless player
+    // can traverse the full color range within a 40 trial round.
   }
 
-  recordTrial(correct, isValid, confidence = 1.0, wasMatch = false, userClicked = false) {
-    if (!isValid) return;
+  update(abilityModel) {
+    const theta = abilityModel.theta;
+    const trend = abilityModel.getThetaTrend();
+    const fatigue = abilityModel.getFatigueIndex();
+    const flow = abilityModel.getFlowScore();
 
-    // MATCH trials -> immediate full EMA update
-    if (wasMatch) {
-      const score = this.computeWeightedScore(correct, confidence);
+    // PI controller: positive error = player below target, negative = above target
+    const error = this.targetTheta - theta;
+    this.integral += error;
+    this.integral = Math.max(-this.integralMax, Math.min(this.integralMax, this.integral));
 
-      this.performanceEMA +=
-        this.alpha * (score - this.performanceEMA);
+    let adjustment = this.Kp * error + this.Ki * this.integral;
 
-      this.updatePressure();
-      return;
+    // Flow boost: when performing well and improving, push slightly harder
+    if (theta > 1.6 && trend > 0.005) {
+      adjustment -= 0.1; // Negative adjustment = increase difficulty
     }
 
-    // FALSE ALARM (non-match + user clicked) -> immediate punishment
-    if (!wasMatch && userClicked) {
-      const score = this.computeWeightedScore(false, confidence);
-
-      this.performanceEMA +=
-        this.alpha * (score - this.performanceEMA);
-
-      this.correctRejectionStreak = 0; // Reset streak
-      this.updatePressure();
-      return;
+    // Recovery: when theta trending down and fatigue rising, ease off
+    if (trend < -0.01 && fatigue > 0.5) {
+      adjustment += 0.15; // Positive adjustment = decrease difficulty
     }
 
-    // CORRECT REJECTION (non-match + no click) -> accumulate streak, deferred micro-reward
-    if (!wasMatch && !userClicked) {
-      this.correctRejectionStreak++;
-
-      // Only reward after sustained inhibition (n consecutive correct rejections)
-      if (this.correctRejectionStreak >= this.rejectionWindow) {
-        // Tiny upward nudge as stability signal (not skill signal)
-        this.performanceEMA +=
-          this.alpha * this.rejectionReward * (1.0 - this.performanceEMA);
-
-        this.correctRejectionStreak = 0; // Reset after reward
-        this.updatePressure();
-      }
-      // No immediate EMA update - waiting for sustained inhibition
-    }
-  }
-
-  computeWeightedScore(correct, confidence) {
-    if (correct) {
-      return 0.7 + 0.3 * confidence;
+    // Map adjustment to entropy delta
+    // Positive adjustment (struggling) = decrease entropy, negative (excelling) = increase
+    // Asymmetric: increasing is slower than decreasing (harder to earn, easier to lose)
+    let entropyDelta;
+    if (adjustment < 0) {
+      entropyDelta = -adjustment * this.entropyClimbRate;
     } else {
-      return 0.3 * (1 - confidence);
-    }
-  }
-
-  updatePressure() {
-    // Decrease reacts faster
-    if (this.performanceEMA < this.decreaseThreshold) {
-      this.decreasePressure++;
-      this.increasePressure = Math.max(0, this.increasePressure - 1);
+      entropyDelta = -adjustment * this.entropyDropRate;
     }
 
-    // Increase reacts slower
-    else if (this.performanceEMA > this.increaseThreshold) {
-      this.increasePressure++;
-      this.decreasePressure = Math.max(0, this.decreasePressure - 1);
+    this.targetEntropy = Math.max(0, Math.min(1, this.targetEntropy + entropyDelta));
+
+    // ── KNOB 1: UNIQUE COLORS ──────────────────────────────────────────
+    // Primary difficulty lever. Controls how many distinct colors appear
+    // in the players attention window (n+1). More unique colors = harder
+    // to discriminate matches from noise.
+    // Entropy (0..1) maps linearly to the color range [min..max].
+    // Step hold gate prevents flickering: the candidate must sustain for
+    // several consecutive trials before the actual color count commits.
+    // Asymmetric: harder to earn (holdIncrease) than to lose (holdDecrease).
+    const range = this.maxUniqueColors - this.minUniqueColors;
+    const targetFloat = this.minUniqueColors + this.targetEntropy * range;
+    const candidateColors = Math.round(Math.max(this.minUniqueColors, Math.min(this.maxUniqueColors, targetFloat)));
+
+    if (candidateColors !== this.currentUniqueColors) {
+      if (candidateColors === this.pendingUniqueColors) {
+        this.stepHoldCounter++;
+      } else {
+        this.pendingUniqueColors = candidateColors;
+        this.stepHoldCounter = 1;
+      }
+
+      const requiredHold = candidateColors > this.currentUniqueColors
+        ? this.stepHoldIncrease
+        : this.stepHoldDecrease;
+
+      if (this.stepHoldCounter >= requiredHold) {
+        this.currentUniqueColors = candidateColors;
+        this.stepHoldCounter = 0;
+      }
+    } else {
+      this.stepHoldCounter = 0;
     }
 
-    // Neutral zone slowly relaxes both
-    else {
-      this.increasePressure = Math.max(0, this.increasePressure - 1);
-      this.decreasePressure = Math.max(0, this.decreasePressure - 1);
-    }
+    // ── KNOB 2: MATCH RATE ───────────────────────────────────────────
+    // Controls how often n-back matches appear. More matches = easier
+    // (detecting a match is simpler than correctly inhibiting a non match).
+    // Struggling players get more matches (up to 40%) for more winnable
+    // trials. Strong players get fewer (down to 25%) forcing more
+    // correct rejection demands, which is the harder cognitive skill.
+    const matchAdj = Math.max(-0.05, Math.min(0.10, adjustment * 0.05));
+    this.matchRate = Math.max(0.25, Math.min(0.40, 0.30 + matchAdj));
 
-    // Apply changes
-    if (this.decreasePressure >= this.decreasePressureLimit) {
-      this.decreaseUniqueColors();
-      this.resetPressure();
-    } else if (this.increasePressure >= this.increasePressureLimit) {
-      this.increaseUniqueColors();
-      this.resetPressure();
-    }
-  }
-
-  resetPressure() {
-    this.increasePressure = 0;
-    this.decreasePressure = 0;
-  }
-
-  increaseUniqueColors() {
-    if (this.currentUniqueColors < this.maxUniqueColors) {
-      this.currentUniqueColors++;
-    }
-  }
-
-  decreaseUniqueColors() {
-    if (this.currentUniqueColors > this.minUniqueColors) {
-      this.currentUniqueColors--;
+    // ── KNOB 3: STIMULUS INTERVAL (speed) ────────────────────────────
+    // Multiplier on display timing. < 1.0 = faster, > 1.0 = slower.
+    // In flow (high flow, low fatigue): speed up slightly to maintain
+    // engagement and prevent boredom. Under fatigue: slow down to give
+    // the player more processing time and reduce overwhelm.
+    if (flow > 0.6 && fatigue < 0.3) {
+      this.stimulusInterval = 0.92;
+    } else if (fatigue > 0.6) {
+      this.stimulusInterval = 1.08;
+    } else {
+      this.stimulusInterval = 1.0;
     }
   }
 
@@ -357,12 +440,35 @@ class UniqueColorController {
     return this.currentUniqueColors;
   }
 
+  getCurrentUniqueColors() {
+    return this.currentUniqueColors;
+  }
+
   getMaxUniqueColors() {
     return this.maxUniqueColors;
   }
 
-  getCurrentUniqueColors() {
-    return this.currentUniqueColors;
+  getMatchRate() {
+    return this.matchRate;
+  }
+
+  // Called when SPRT stops a session for poor performance.
+  // Aggressively reduces difficulty so the next round starts easier.
+  onSessionStopped() {
+    // Drop entropy by half (fast difficulty reduction)
+    this.targetEntropy = Math.max(0, this.targetEntropy * 0.5);
+
+    // Drop unique colors by 1 immediately (bypass step hold)
+    if (this.currentUniqueColors > this.minUniqueColors) {
+      this.currentUniqueColors--;
+    }
+
+    // Reset PI integral so accumulated "push harder" pressure is cleared
+    this.integral = 0;
+    this.stepHoldCounter = 0;
+
+    // Ease match rate toward easier
+    this.matchRate = Math.min(0.40, this.matchRate + 0.05);
   }
 
   getStats() {
@@ -370,31 +476,130 @@ class UniqueColorController {
       currentUniqueColors: this.currentUniqueColors,
       maxUniqueColors: this.maxUniqueColors,
       minUniqueColors: this.minUniqueColors,
-      performanceEMA: this.performanceEMA,
-      increasePressure: this.increasePressure,
-      decreasePressure: this.decreasePressure,
-      increaseThreshold: this.increaseThreshold,
-      decreaseThreshold: this.decreaseThreshold,
-      correctRejectionStreak: this.correctRejectionStreak,
-      rejectionWindow: this.rejectionWindow
+      targetEntropy: this.targetEntropy,
+      matchRate: this.matchRate,
+      stimulusInterval: this.stimulusInterval,
+      piError: this.targetTheta - (this.integral / Math.max(1, Math.abs(this.integral)) * this.Ki),
+      piIntegral: this.integral
     };
   }
 }
 
 // ============================================================================
-// COLOR SEQUENCE GENERATOR (with rank-based weighting)
+// SPRT STOPPER (Sequential Probability Ratio Test for session stopping)
+// ============================================================================
+
+class SPRTStopper {
+  constructor() {
+    // Hypotheses about theta
+    this.theta0 = 1.5;         // H0: acceptable performance
+    this.theta1 = 0.8;         // H1: poor performance
+    this.logLR = 0;            // Cumulative log likelihood ratio
+
+    // Decision boundaries (from alpha=0.05, beta=0.10)
+    // logLR accumulates log(P(data|H1) / P(data|H0))
+    // Positive logLR = evidence for H1 (poor), negative = evidence for H0 (good)
+    this.stopBound = Math.log((1 - 0.10) / 0.05);   // ~2.89, accept H1 (poor, stop session)
+    this.acceptBound = Math.log(0.10 / (1 - 0.05));  // ~-2.25, accept H0 (performing OK)
+
+    this.decision = 'continue'; // 'continue', 'stop'
+    this.trialsRecorded = 0;
+  }
+
+  recordTrial(correct, wasMatch) {
+    this.trialsRecorded++;
+
+    // Likelihood of this outcome under H0 (theta=1.5) vs H1 (theta=0.8)
+    // For targets: P(hit|theta) approximated from d' model
+    // For non targets: P(correct rejection|theta)
+    // Using simplified logistic mapping from theta to accuracy
+    const p0 = this.thetaToAccuracy(this.theta0, wasMatch);
+    const p1 = this.thetaToAccuracy(this.theta1, wasMatch);
+
+    const pObserved0 = correct ? p0 : (1 - p0);
+    const pObserved1 = correct ? p1 : (1 - p1);
+
+    // Accumulate log likelihood ratio (H1 vs H0)
+    // Correct trials push logLR negative (toward H0), errors push positive (toward H1)
+    if (pObserved0 > 0 && pObserved1 > 0) {
+      this.logLR += Math.log(pObserved1 / pObserved0);
+    }
+
+    // Check boundaries
+    if (this.logLR >= this.stopBound) {
+      this.decision = 'stop';     // Strong evidence for H1: poor performance, stop session
+    } else if (this.logLR <= this.acceptBound) {
+      this.decision = 'continue'; // Strong evidence for H0: performing OK, reset and keep monitoring
+      this.logLR = 0;
+    }
+
+    return this.decision;
+  }
+
+  // Map theta (d') to expected accuracy for a trial type
+  thetaToAccuracy(theta, isTarget) {
+    // For targets: hit rate increases with theta
+    // For non targets: correct rejection rate increases with theta
+    // Using logistic approximation: accuracy = 1 / (1 + exp(-(theta-offset)*scale))
+    if (isTarget) {
+      return 1 / (1 + Math.exp(-(theta - 0.5) * 1.5));
+    } else {
+      return 1 / (1 + Math.exp(-(theta - 0.2) * 1.5));
+    }
+  }
+
+  shouldStop() {
+    // Need minimum trials before allowing stop
+    if (this.trialsRecorded < 8) return false;
+    return this.decision === 'stop';
+  }
+
+  getStatus() {
+    return {
+      logLR: this.logLR,
+      stopBound: this.stopBound,
+      acceptBound: this.acceptBound,
+      decision: this.decision,
+      trialsRecorded: this.trialsRecorded
+    };
+  }
+
+  reset() {
+    this.logLR = 0;
+    this.decision = 'continue';
+    this.trialsRecorded = 0;
+  }
+}
+
+// ============================================================================
+// COLOR SEQUENCE GENERATOR (with rank based weighting)
 // ============================================================================
 
 class ColorSequenceGenerator {
   constructor(n, availableColors) {
     this.n = n;
-    this.availableColors = availableColors; // Array of {color, rank, name}
+    this.availableColors = availableColors;
     this.memoryState = new WorkingMemoryState(n);
-    this.activeSet = null; // Active set of K colors for maintaining targetUniqueColors
-    this.swapProbability = 0.7; // Probability of swapping a color for novelty
+    this.activeSet = null;
+    this.swapProbability = 0.7;
   }
 
-  // CONSTRAINT VALIDATION: The window is the source of truth
+  // Compute Shannon entropy of the current memory window (for stats/monitoring)
+  computeEntropy(window) {
+    if (!window || window.length === 0) return 0;
+    const counts = {};
+    for (const c of window) {
+      counts[c] = (counts[c] || 0) + 1;
+    }
+    let entropy = 0;
+    const n = window.length;
+    for (const c in counts) {
+      const p = counts[c] / n;
+      if (p > 0) entropy -= p * Math.log2(p);
+    }
+    return entropy;
+  }
+
   isValidNextColor(currentWindow, candidate, target) {
     // Simulate what the window will look like after adding this candidate
     const windowSize = this.n + 1;
@@ -481,16 +686,11 @@ class ColorSequenceGenerator {
 
     let next;
 
-    // Case 1: K = 2 (minimum load)
-    if (target === 2) {
+    if (target === 2) { // Case 1: K = 2 (minimum load)
       next = this.generateForMinLoad(currentWindow, excludeColor, target);
-    }
-    // Case 2: K = n+1 (maximum load)
-    else if (target === this.n + 1) {
+    } else if (target === this.n + 1) { // Case 2: K = n+1 (maximum load)
       next = this.generateForMaxLoad(currentWindow, excludeColor, target);
-    }
-    // Case 3: K = in between (use active set)
-    else {
+    } else { // Case 3: K = in between (use active set)
       next = this.generateForMidLoad(currentWindow, target, excludeColor);
     }
 
@@ -645,6 +845,7 @@ class ColorSequenceGenerator {
 
 // ============================================================================
 // MATCH GENERATOR (controls frequency of N-back matches)
+// Accepts dynamic target rate from DifficultyController
 // ============================================================================
 
 class MatchGenerator {
@@ -655,7 +856,13 @@ class MatchGenerator {
     this.windowSize = 20;
 
     this.trialsSinceLastMatch = 0;
-    this.maxGap = Math.round(1 / targetMatchRate) * 2; // ~6-7 for 0.3
+    this.maxGap = Math.round(1 / targetMatchRate) * 2;
+  }
+
+  // Allow DifficultyController to update the target rate dynamically
+  setTargetRate(rate) {
+    this.targetRate = Math.max(0.20, Math.min(0.45, rate));
+    this.maxGap = Math.round(1 / this.targetRate) * 2;
   }
 
   shouldCreateMatch(memoryState) {
@@ -728,62 +935,6 @@ class MatchGenerator {
 }
 
 // ============================================================================
-// PERFORMANCE TRACKER
-// ============================================================================
-
-class PerformanceTracker {
-  constructor() {
-    this.trials = [];
-    this.accuracy = 0.75; // Smoothed accuracy
-    this.accuracyFilter = new LowPassFilter(0.15);
-  }
-
-  recordTrial(correct, reactionTime, isValid) {
-    this.trials.push({
-      correct,
-      reactionTime,
-      isValid,
-      timestamp: Date.now()
-    });
-
-    // Update smoothed accuracy (only from valid trials)
-    if (isValid) {
-      this.accuracy = this.accuracyFilter.apply(this.accuracy, correct ? 1 : 0);
-    }
-  }
-
-  getAccuracy() {
-    return this.accuracy;
-  }
-
-  getRecentAccuracy(window = 10) {
-    const validTrials = this.trials.filter(t => t.isValid);
-    if (validTrials.length === 0) return this.accuracy;
-
-    const recent = validTrials.slice(-window);
-    const correct = recent.filter(t => t.correct).length;
-    return correct / recent.length;
-  }
-
-  getStats() {
-    const validTrials = this.trials.filter(t => t.isValid);
-    const correctTrials = validTrials.filter(t => t.correct);
-
-    return {
-      totalTrials: validTrials.length,
-      correctTrials: correctTrials.length,
-      accuracy: this.getAccuracy(),
-      recentAccuracy: this.getRecentAccuracy()
-    };
-  }
-
-  reset() {
-    this.trials = [];
-    this.accuracy = 0.75;
-  }
-}
-
-// ============================================================================
 // MAIN WORKING MEMORY TRAINER
 // ============================================================================
 
@@ -792,11 +943,14 @@ class WorkingMemoryTrainer {
     this.n = n;
     this.colors = colors;
 
-    this.colorController = new UniqueColorController(n);
+    // New unified components
+    this.abilityModel = new AbilityModel();
+    this.difficultyController = new DifficultyController(n);
+    this.sprtStopper = new SPRTStopper();
+
+    // Preserved components
     this.colorGenerator = new ColorSequenceGenerator(n, colors);
     this.matchGenerator = new MatchGenerator(0.30);
-    this.performanceTracker = new PerformanceTracker();
-    this.driftDetector = new CognitiveDriftDetector();
 
     this.trialNumber = 0;
     this.currentTile = null;
@@ -809,32 +963,34 @@ class WorkingMemoryTrainer {
   }
 
   generateNextTrial() {
-    // 1. Get target number of unique colors from controller
-    const targetUniqueColors = this.colorController.getTargetUniqueColors();
+    // 1. Update match generator with dynamic rate from controller
+    this.matchGenerator.setTargetRate(this.difficultyController.getMatchRate());
 
-    // 2. Decide if this should be a match
+    // 2. Get target number of unique colors from controller
+    const targetUniqueColors = this.difficultyController.getTargetUniqueColors();
+
+    // 3. Decide if this should be a match
     const memoryState = this.colorGenerator.getMemoryState();
     const matchDecision = this.matchGenerator.shouldCreateMatch(memoryState);
     const shouldMatch = matchDecision.shouldMatch;
     const isForced = matchDecision.isForced;
 
-    // 3. Get the n-back color (to use for match or exclude for non-match)
+    // 4. Get the n-back color
     const nBackColor = this.matchGenerator.getNBackColor(memoryState);
 
-    // 4. Generate appropriate color (pass isForced to relax constraints if needed)
-    // targetUniqueColors acts as targetLoad for the color generator
+    // 5. Generate appropriate color
     let color = this.colorGenerator.generateNextColor(targetUniqueColors, shouldMatch, nBackColor, isForced);
 
-    // 5. Update memory state with the new color
+    // 6. Update memory state
     this.colorGenerator.updateMemoryState(color);
 
-    // 6. Determine if this is actually a match (after color generation/validation)
+    // 7. Determine if this is actually a match
     const actuallyIsMatch = nBackColor && color === nBackColor;
 
-    // 7. Register the actual match result to keep stats accurate
+    // 8. Register the actual match result
     this.matchGenerator.registerActualMatch(actuallyIsMatch);
 
-    // 8. Create tile
+    // 9. Create tile
     this.currentTile = {
       color: color,
       position: this.generatePosition(),
@@ -859,28 +1015,15 @@ class WorkingMemoryTrainer {
     // Store last trial result
     if (isValid) {
       this.lastTrialCorrect = correct;
-    }
 
-    // Record to performance tracker and color controller
-    if (isValid) {
-      this.performanceTracker.recordTrial(correct, reactionTime, isValid);
+      // Update AbilityModel first (single source of truth)
+      this.abilityModel.recordTrial(wasMatch, userClicked, reactionTime);
 
-      // Record to drift detector first to update confidence
-      this.driftDetector.recordTrial(
-        correct,
-        reactionTime,
-        this.currentTile ? this.currentTile.targetLoad : 2,
-        isValid
-      );
+      // DifficultyController reads from AbilityModel
+      this.difficultyController.update(this.abilityModel);
 
-      // Pass confidence, wasMatch, and userClicked to color controller for eligibility-gated evaluation
-      const confidence = this.driftDetector.confidenceScore;
-      this.colorController.recordTrial(correct, isValid, confidence, wasMatch, userClicked);
-    }
-
-    // Update recovery block status
-    if (this.driftDetector.isInRecovery()) {
-      this.driftDetector.updateRecoveryBlock();
+      // SPRT stopper tracks trial outcomes
+      this.sprtStopper.recordTrial(correct, wasMatch);
     }
 
     return {
@@ -913,7 +1056,6 @@ class WorkingMemoryTrainer {
     const positions = [];
     for (let row = 0; row < 3; row++) {
       for (let col = 0; col < 3; col++) {
-        // Check if this position is excluded
         const isExcluded = this.excludedPositions.some(
           excluded => excluded.row === row && excluded.col === col
         );
@@ -926,29 +1068,51 @@ class WorkingMemoryTrainer {
   }
 
   getStats() {
-    const perfStats = this.performanceTracker.getStats();
+    const ability = this.abilityModel.getStats();
+    const difficulty = this.difficultyController.getStats();
     const memoryState = this.colorGenerator.getMemoryState();
-    const driftStats = this.driftDetector.getStats();
-    const colorStats = this.colorController.getStats();
+    const sprt = this.sprtStopper.getStatus();
+
+    // Compute current window entropy
+    const windowEntropy = this.colorGenerator.computeEntropy(memoryState.getRecentColors());
 
     return {
       n: this.n,
       trialNumber: this.trialNumber,
       currentLoad: memoryState.getCurrentLoad(),
-      targetUniqueColors: colorStats.currentUniqueColors,
-      maxUniqueColors: colorStats.maxUniqueColors,
-      minUniqueColors: colorStats.minUniqueColors,
-      performanceEMA: colorStats.performanceEMA,
-      increasePressure: colorStats.increasePressure,
-      decreasePressure: colorStats.decreasePressure,
-      increaseThreshold: colorStats.increaseThreshold,
-      decreaseThreshold: colorStats.decreaseThreshold,
-      accuracy: perfStats.accuracy,
-      recentAccuracy: perfStats.recentAccuracy,
-      totalTrials: perfStats.totalTrials,
-      confidence: driftStats.confidence,
-      driftDetector: driftStats,
-      isRecovery: this.driftDetector.isInRecovery()
+
+      // New unified metrics
+      theta: ability.theta,
+      thetaTrend: ability.thetaTrend,
+      flowScore: ability.flowScore,
+      fatigueIndex: ability.fatigueIndex,
+      targetEntropy: difficulty.targetEntropy,
+      windowEntropy: windowEntropy,
+      matchRate: difficulty.matchRate,
+      stimulusInterval: difficulty.stimulusInterval,
+      sprtStatus: sprt,
+
+      // Ability detail
+      rtMedian: ability.rtMedian,
+      rtCV: ability.rtCV,
+      hits: ability.hits,
+      misses: ability.misses,
+      falseAlarms: ability.falseAlarms,
+      correctRejections: ability.correctRejections,
+
+      targetUniqueColors: difficulty.currentUniqueColors,
+      maxUniqueColors: difficulty.maxUniqueColors,
+      minUniqueColors: difficulty.minUniqueColors,
+      performanceEMA: this.abilityModel.getNormalizedPerformance(),
+      accuracy: this.abilityModel.getNormalizedPerformance(),
+      recentAccuracy: this.abilityModel.getNormalizedPerformance(),
+      totalTrials: ability.totalTrials,
+      confidence: this.abilityModel.getFlowScore(),
+      isRecovery: this.abilityModel.getFatigueIndex() > 0.6,
+
+      // PI controller state (replaces pressure counters)
+      piError: difficulty.piError,
+      piIntegral: difficulty.piIntegral
     };
   }
 
@@ -956,10 +1120,10 @@ class WorkingMemoryTrainer {
     this.trialNumber = 0;
     this.currentTile = null;
     this.colorGenerator = new ColorSequenceGenerator(this.n, this.colors);
-    this.colorController = new UniqueColorController(this.n);
-    this.matchGenerator = new MatchGenerator(0.30); // Reset to get early match forcing
-    this.performanceTracker.reset();
-    this.driftDetector.reset();
+    this.matchGenerator = new MatchGenerator(0.30);
+    this.abilityModel.reset();
+    this.difficultyController = new DifficultyController(this.n);
+    this.sprtStopper.reset();
   }
 
   getCurrentN() {
@@ -968,16 +1132,14 @@ class WorkingMemoryTrainer {
 }
 
 // ============================================================================
-// N-BACK ENGINE
+// N-BACK ENGINE (facade)
 // ============================================================================
 
 class NBackEngine {
   constructor(options = {}) {
     this.currentN = options.startN || 2;
     this.colors = options.colors || [];
-    // Create the working memory trainer
     this.trainer = new WorkingMemoryTrainer(this.currentN, this.colors);
-
     this.currentTile = null;
   }
 
@@ -986,7 +1148,6 @@ class NBackEngine {
     return this.currentTile;
   }
 
-  // Record user response (wasMatch is now computed in game.js using trialHistory)
   onUserResponse(userClicked, wasMatch, reactionTime) {
     if (!this.currentTile) {
       throw new Error('No current tile');
@@ -1004,27 +1165,53 @@ class NBackEngine {
     this.trainer.setExcludedPositions(positions);
   }
 
+  // Check if SPRT says we should stop the session.
+  // When it fires, also penalize the difficulty controller so the next
+  // round starts easier instead of staying at the old high difficulty.
+  shouldStopSession() {
+    if (!this.trainer.sprtStopper.shouldStop()) return false;
+
+    // SPRT fired: force difficulty down for next round
+    this.trainer.difficultyController.onSessionStopped();
+    this.trainer.sprtStopper.reset();
+    return true;
+  }
+
   getStats() {
     const stats = this.trainer.getStats();
 
     return {
       currentN: this.currentN,
-      accuracy: stats.recentAccuracy,
+      accuracy: stats.accuracy,
       confidence: stats.confidence,
+
+      // New metrics
+      theta: stats.theta,
+      thetaTrend: stats.thetaTrend,
+      flowScore: stats.flowScore,
+      fatigueIndex: stats.fatigueIndex,
+      targetEntropy: stats.targetEntropy,
+      windowEntropy: stats.windowEntropy,
+      matchRate: stats.matchRate,
+      stimulusInterval: stats.stimulusInterval,
+      sprtStatus: stats.sprtStatus,
+
+      // Ability detail
+      rtMedian: stats.rtMedian,
+      rtCV: stats.rtCV,
+
       workingMemory: {
         currentLoad: stats.currentLoad,
         targetUniqueColors: stats.targetUniqueColors,
         maxUniqueColors: stats.maxUniqueColors,
         minUniqueColors: stats.minUniqueColors,
         performanceEMA: stats.performanceEMA,
-        increasePressure: stats.increasePressure,
-        decreasePressure: stats.decreasePressure,
-        increaseThreshold: stats.increaseThreshold,
-        decreaseThreshold: stats.decreaseThreshold,
-        progressToMax: stats.targetUniqueColors / stats.maxUniqueColors
+        progressToMax: stats.targetUniqueColors / stats.maxUniqueColors,
+        // PI controller state replaces pressure counters
+        piError: stats.piError,
+        piIntegral: stats.piIntegral
       },
       totalTrials: stats.totalTrials,
-      driftDetector: stats.driftDetector,
       isRecovery: stats.isRecovery
     };
   }
@@ -1034,77 +1221,25 @@ class NBackEngine {
     this.trainer.reset();
   }
 
-  // Serialize trainer state for localStorage (trial history is managed separately in game.js)
   toJSON() {
     return {
       currentN: this.currentN,
       trainerState: {
         trialNumber: this.trainer.trialNumber,
-        currentUniqueColors: this.trainer.colorController.currentUniqueColors,
-        accuracy: this.trainer.performanceTracker.accuracy
+        currentUniqueColors: this.trainer.difficultyController.currentUniqueColors,
+        accuracy: this.trainer.abilityModel.getNormalizedPerformance(),
+        theta: this.trainer.abilityModel.theta,
+        targetEntropy: this.trainer.difficultyController.targetEntropy
       }
     };
   }
 }
 
 // ============================================================================
-// D-PRIME (signal detection sensitivity)
-// ============================================================================
-
-// Compute d-prime from hit rate and false alarm rate
-// Uses z-score approximation, caps extreme values to avoid infinity
-function computeDPrime(hitRate, faRate) {
-  // Cap rates to avoid infinite z-scores
-  const cappedHitRate = Math.max(0.01, Math.min(0.99, hitRate));
-  const cappedFaRate = Math.max(0.01, Math.min(0.99, faRate));
-
-  // Approximate inverse normal CDF (Hastings approximation)
-  function invNorm(p) {
-    const a1 = -3.969683028665376e1;
-    const a2 = 2.209460984245205e2;
-    const a3 = -2.759285104469687e2;
-    const a4 = 1.383577518672690e2;
-    const a5 = -3.066479806614716e1;
-    const a6 = 2.506628277459239e0;
-    const b1 = -5.447609879822406e1;
-    const b2 = 1.615858368580409e2;
-    const b3 = -1.556989798598866e2;
-    const b4 = 6.680131188771972e1;
-    const b5 = -1.328068155288572e1;
-    const c1 = -7.784894002430293e-3;
-    const c2 = -3.223964580411365e-1;
-    const c3 = -2.400758277161838e0;
-    const c4 = -2.549732539343734e0;
-    const c5 = 4.374664141464968e0;
-    const c6 = 2.938163982698783e0;
-    const d1 = 7.784695709041462e-3;
-    const d2 = 3.224671290700398e-1;
-    const d3 = 2.445134137142996e0;
-    const d4 = 3.754408661907416e0;
-    const pLow = 0.02425;
-    const pHigh = 1 - pLow;
-
-    let q, r;
-    if (p < pLow) {
-      q = Math.sqrt(-2 * Math.log(p));
-      return (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
-    } else if (p <= pHigh) {
-      q = p - 0.5;
-      r = q * q;
-      return (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1);
-    } else {
-      q = Math.sqrt(-2 * Math.log(1 - p));
-      return -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
-    }
-  }
-
-  return invNorm(cappedHitRate) - invNorm(cappedFaRate);
-}
-
-// ============================================================================
 // ROLLING ERROR MONITOR (detect poor performance in current round)
 // ============================================================================
 
+// Note: this is a fallback if SPRT BASED SESSION STOP didnt fire
 // Check if recent trials show too many errors (50%+ error rate)
 // Returns true if game should stop due to poor performance
 // Works regardless of how many targets there were
@@ -1132,7 +1267,9 @@ if (typeof module !== 'undefined' && module.exports) {
     NBackEngine,
     WorkingMemoryTrainer,
     LowPassFilter,
-    CognitiveDriftDetector,
+    AbilityModel,
+    DifficultyController,
+    SPRTStopper,
     computeDPrime,
     shouldStopForErrors
   };
