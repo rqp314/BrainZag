@@ -2042,7 +2042,7 @@ function showResults() {
         const roundedAvg = Math.round(avgLoad * 10) / 10; // round to 1 decimal
 
         // Traffic light color based on load percentage
-        loadPercent = avgLoad / maxUniqueColors;
+        loadPercent = (avgLoad - 1) / (maxUniqueColors - 1);
         let loadColor;
         if (loadPercent <= 0.33) {
             loadColor = COLORS.find(c => c.name === "green").color; // easy
