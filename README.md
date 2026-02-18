@@ -11,7 +11,7 @@ Brain Zag is a "Color [N-back](https://en.wikipedia.org/wiki/N-back)" brain trai
 </p>
 
 ### How to play - [BrainZag.com](https://www.brainzag.com/)
-- Basic gameplay: You are shown a sequence of colors one at a time. Your goal is to identify **if the current color matches the one from N steps earlier** in the sequence. For example in a 2-back game, if the sequence is: *red, blue, red* - you would recognize the *current red* as a match to the *red two steps before* -> click Match.
+- Basic gameplay: You are shown a sequence of colors one at a time. Your goal is to identify **if the current COLOR (not position) matches the one from N steps earlier** in the sequence. For example in a 2-back game, if the sequence is: *red, blue, red (current)* - you would recognize the *current red* as a match to the *red two steps before (2-back)* -> click Match.
 
 - In your mind try to update the information "***going forward + looking backwards***", given an example sequence: *yellow, blue, red* - update your mind with: [*yellow*], [*blue -> yellow*] and [*red -> blue -> yellow*].
 
@@ -43,9 +43,9 @@ Together this can improve your performance on exams/tests:
 - Todai 🇯🇵
 - Gaokao 🇨🇳
 - Raven’s - Wechsler Scales (WAIS) - Stanford-Binet
-- CBSE - NEET - JEE Advanced - UPSC CSE 🇮🇳
+- NEET - JEE Advanced - UPSC CSE 🇮🇳
 - BMAT - MCAT - USMLE - LSAT 🇬🇧 / 🇺🇸
-- Leetcode - Job interviews
+- Leetcode - Coding - Job interviews
 
 ## Color N-back
 Most [N-back](https://en.wikipedia.org/wiki/N-back) apps/websites are "dual-n-back" and focus on position + audio stimuli. BrainZag however is purely color. Playing any N-back game requires you to **hold and update** information in your mind. Your brain is very efficient and smart and will always find a way to make your task easier:
