@@ -563,23 +563,24 @@ function renderActivityHeatmap() {
         }
     }
 
+    // End date is 25 days from now
+    const endDate = new Date(today);
+    endDate.setDate(endDate.getDate() + 25);
+
     // Month names (3 letter)
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-    // Get the 3 months to display (current month and 2 previous)
+    // Get the 3 months to display, anchored to endDate so the heatmap always
+    // shows the +25 day cell (the window shifts left as today advances)
     const months = [];
     for (let i = 2; i >= 0; i--) {
-        const monthDate = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const monthDate = new Date(endDate.getFullYear(), endDate.getMonth() - i, 1);
         months.push({
             year: monthDate.getFullYear(),
             month: monthDate.getMonth(),
             name: monthNames[monthDate.getMonth()]
         });
     }
-
-    // End date is 25 days from now
-    const endDate = new Date(today);
-    endDate.setDate(endDate.getDate() + 25);
 
     // Fixed 5 weeks per month for uniform display
     const WEEKS_PER_MONTH = 5;
@@ -635,7 +636,7 @@ function renderActivityHeatmap() {
 
                 // Check if date is in the future (but within 2 weeks for last month)
                 if (cellDate > today) {
-                    if (monthIndex === 2 && cellDate <= endDate) {
+                    if (cellDate <= endDate) {
                         const isGoal = dateStr === goalDateStr;
                         const goalClass = isGoal ? ' heatmap-goal' : '';
                         // Only show dots if goal exists and date is before or on goal
@@ -645,7 +646,7 @@ function renderActivityHeatmap() {
                         html += `<div class="heatmap-cell heatmap-future${goalClass}${dotClass}" ${waveDelay}></div>`;
                         if (showDot) futureCellIndex++;
                     } else {
-                        html += '<div class="heatmap-cell heatmap-outside"></div>';
+                        html += '<div class="heatmap-cell heatmap-future"></div>';
                     }
                     continue;
                 }
