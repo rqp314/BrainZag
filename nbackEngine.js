@@ -1109,7 +1109,7 @@ class WorkingMemoryTrainer {
       targetUniqueColors: difficulty.currentUniqueColors,
       maxUniqueColors: difficulty.maxUniqueColors,
       minUniqueColors: difficulty.minUniqueColors,
-      performanceEMA: this.abilityModel.getNormalizedPerformance(),
+      performanceEMA: this.abilityModel.getNormalizedPerformance(), // TODO weird, all not needed ?
       accuracy: this.abilityModel.getNormalizedPerformance(),
       recentAccuracy: this.abilityModel.getNormalizedPerformance(),
       totalTrials: ability.totalTrials,

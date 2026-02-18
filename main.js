@@ -92,6 +92,7 @@ let index = 0;
 let intervalId = null;
 let isRunning = false;
 let rounds = 0;
+const TOTAL_ROUNDS = 40;
 
 let correctMatches = 0;
 let incorrectMatches = 0;
@@ -1010,8 +1011,6 @@ const roundProgressContainer = document.getElementById("roundProgressContainer")
 const roundProgressCircle = document.getElementById("roundProgressCircle");
 const timerWrapper = document.getElementById("timerWrapper");
 
-const TOTAL_ROUNDS = 40;
-
 
 
 // ------------------ Level Unlocking System ------------------
@@ -1856,7 +1855,6 @@ function startGame() {
     }, 450); // slightly longer than animation duration (400ms) for better feel
 }
 
-// Schedule next stimulus with randomized timing
 function scheduleNextStimulus() {
     if (!isRunning) return;
 
