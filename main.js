@@ -2054,7 +2054,7 @@ function showResults() {
         }
 
         const TOTAL_SEGMENTS = 4;
-        const loadRatio = avgLoad / maxUniqueColors;
+        const loadRatio = (avgLoad - 1) / (maxUniqueColors - 1);
         const filledSegments = Math.round(loadRatio * TOTAL_SEGMENTS);
         const emptySegments = TOTAL_SEGMENTS - filledSegments;
         const loadBar = '█'.repeat(filledSegments) + '░'.repeat(emptySegments);
