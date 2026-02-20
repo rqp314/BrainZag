@@ -430,9 +430,9 @@ class DifficultyController {
     // engagement and prevent boredom. Under fatigue: slow down to give
     // the player more processing time and reduce overwhelm.
     if (flow > 0.6 && fatigue < 0.3) {
-      this.stimulusInterval = 0.92;
+      this.stimulusInterval = 0.95;
     } else if (fatigue > 0.6) {
-      this.stimulusInterval = 1.08;
+      this.stimulusInterval = 1.05;
     } else {
       this.stimulusInterval = 1.0;
     }

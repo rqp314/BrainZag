@@ -37,7 +37,7 @@ const DISPLAY_TIME = 500;   // 0.5s stimulus showing
 const INTERVAL_TIME = 2500; // 2.5s between items
 
 // Get adaptive stimulus interval, applying the DifficultyController speed multiplier
-// stimulusInterval: 0.92 = faster (in flow), 1.08 = slower (fatigued), 1.0 = normal
+// stimulusInterval: faster (in flow), slower (fatigued), 1.0 = normal
 function getAdaptiveInterval() {
     const adaptive = nbackEngine
         ? (nbackEngine.getStats().stimulusInterval || 1.0)
