@@ -318,6 +318,19 @@ class DifficultyController {
     this.matchRate = 0.30;      // Dynamic match rate
     this.stimulusInterval = 1.0; // Speed multiplier (1.0 = normal)
 
+    // TEMPORAL STRUCTURE ENTROPY (TSE)
+    // Controls transition unpredictability independent of unique color count.
+    // Low TSE = long runs of same color, predictable switching rhythm.
+    // High TSE = frequent switching, near random transitions.
+    // Starts at 0 after N increase so the player can stabilize the
+    // expanded sliding buffer before facing transition chaos.
+    // At low TSE the repeat bias naturally produces runs of ~N length
+    // because the n back constraint forces a switch once the buffer
+    // catches up to the run color.
+    this.tse = 0.0;
+    this.tseClimbRate = 0.06;   // Same base rate as entropy climb
+    this.tseDropRate = 0.12;    // 2x faster to drop (same asymmetry)
+
     // Unique colors (derived from entropy)
     this.minUniqueColors = 2;
     this.maxUniqueColors = n + 1;
@@ -408,8 +421,15 @@ class DifficultyController {
         : this.stepHoldDecrease;
 
       if (this.stepHoldCounter >= requiredHold) {
-        this.currentUniqueColors = candidateColors;
-        this.stepHoldCounter = 0;
+        // Gate K (unique color count) increases: TSE must be >= 0.5 before allowing more
+        // unique colors. Ensures temporal structure is stabilized before
+        // adding discrimination load. K decreases are never gated.
+        if (candidateColors > this.currentUniqueColors && this.tse < 0.5) {
+          // TSE too low, hold K until transitions stabilize
+        } else {
+          this.currentUniqueColors = candidateColors;
+          this.stepHoldCounter = 0;
+        }
       }
     } else {
       this.stepHoldCounter = 0;
@@ -436,6 +456,21 @@ class DifficultyController {
     } else {
       this.stimulusInterval = 1.0;
     }
+
+    // ── KNOB 4: TEMPORAL STRUCTURE ENTROPY (TSE) ─────────────────────
+    // Controls transition unpredictability. Increases when player excels,
+    // decreases when struggling. Leads K (unique color count) progression:
+    // TSE must reach 0.5 before K can increase, ensuring temporal stability before adding
+    // discrimination load. Uses the same PI adjustment signal as the other knobs.
+    let tseDelta;
+    if (adjustment < 0) {
+      // Player excelling: increase TSE (more transition chaos)
+      tseDelta = -adjustment * this.tseClimbRate;
+    } else {
+      // Player struggling: decrease TSE (more predictable transitions)
+      tseDelta = -adjustment * this.tseDropRate;
+    }
+    this.tse = Math.max(0, Math.min(1, this.tse + tseDelta));
   }
 
   getTargetUniqueColors() {
@@ -471,6 +506,9 @@ class DifficultyController {
 
     // Ease match rate toward easier
     this.matchRate = Math.min(0.40, this.matchRate + 0.05);
+
+    // Drop TSE aggressively (predictable transitions for recovery)
+    this.tse = Math.max(0, this.tse * 0.3);
   }
 
   getStats() {
@@ -479,6 +517,7 @@ class DifficultyController {
       maxUniqueColors: this.maxUniqueColors,
       minUniqueColors: this.minUniqueColors,
       targetEntropy: this.targetEntropy,
+      tse: this.tse,
       matchRate: this.matchRate,
       stimulusInterval: this.stimulusInterval,
       piError: this.targetTheta - (this.integral / Math.max(1, Math.abs(this.integral)) * this.Ki),
@@ -656,7 +695,7 @@ class ColorSequenceGenerator {
     return [...windowSet][0];
   }
 
-  generateNextColor(targetUniqueColors, shouldMatch, nBackColor, isForced = false) {
+  generateNextColor(targetUniqueColors, shouldMatch, nBackColor, isForced = false, tse = 1.0) {
     const currentWindow = this.memoryState.recentColors;
 
     // Ensure target is at least 2
@@ -685,6 +724,24 @@ class ColorSequenceGenerator {
 
     // When NOT creating a match, exclude the n-back color to avoid accidental matches
     const excludeColor = !shouldMatch ? nBackColor : null;
+
+    // ── TSE REPEAT BIAS ──────────────────────────────────────────────
+    // Low TSE biases toward repeating the previous color, creating longer
+    // runs and more predictable transitions. At TSE=1.0 this never fires
+    // (pure random, current behavior). Max repeat bias = 1 - 1/(N+1) so
+    // mean run targets the full window width. The n back constraint hard
+    // caps runs at N (n back catches up), giving two cooperating forces:
+    // probability aims to fill the window, n back trims at the right point.
+    // N=2: p=0.67 mean=3. N=4: p=0.80 mean=5. N=7: p=0.875 mean=8.
+    if (tse < 1.0 && currentWindow.length > 0) {
+      const lastColor = currentWindow[currentWindow.length - 1];
+      if (lastColor && lastColor !== excludeColor) {
+        const repeatProb = (1 - 1 / (this.n + 1)) * (1 - tse);
+        if (Math.random() < repeatProb && this.isValidNextColor(currentWindow, lastColor, target)) {
+          return lastColor;
+        }
+      }
+    }
 
     // ALGORITHM: Three cases based on targetUniqueColors (K)
     // Case 1: K = 2 (minimum) - keep patterns simple, repeat existing
@@ -984,8 +1041,11 @@ class WorkingMemoryTrainer {
     // 4. Get the n-back color
     const nBackColor = this.matchGenerator.getNBackColor(memoryState);
 
-    // 5. Generate appropriate color
-    let color = this.colorGenerator.generateNextColor(targetUniqueColors, shouldMatch, nBackColor, isForced);
+    // 5. Generate appropriate color (pass TSE for transition structure control)
+    let color = this.colorGenerator.generateNextColor(
+      targetUniqueColors, shouldMatch, nBackColor, isForced,
+      this.difficultyController.tse
+    );
 
     // 6. Update memory state
     this.colorGenerator.updateMemoryState(color);
@@ -1093,6 +1153,7 @@ class WorkingMemoryTrainer {
       flowScore: ability.flowScore,
       fatigueIndex: ability.fatigueIndex,
       targetEntropy: difficulty.targetEntropy,
+      tse: difficulty.tse,
       windowEntropy: windowEntropy,
       matchRate: difficulty.matchRate,
       stimulusInterval: difficulty.stimulusInterval,
@@ -1200,6 +1261,7 @@ class NBackEngine {
       windowEntropy: stats.windowEntropy,
       matchRate: stats.matchRate,
       stimulusInterval: stats.stimulusInterval,
+      tse: stats.tse,
       sprtStatus: stats.sprtStatus,
 
       // Ability detail
@@ -1235,7 +1297,8 @@ class NBackEngine {
         currentUniqueColors: this.trainer.difficultyController.currentUniqueColors,
         accuracy: this.trainer.abilityModel.getNormalizedPerformance(),
         theta: this.trainer.abilityModel.theta,
-        targetEntropy: this.trainer.difficultyController.targetEntropy
+        targetEntropy: this.trainer.difficultyController.targetEntropy,
+        tse: this.trainer.difficultyController.tse
       }
     };
   }

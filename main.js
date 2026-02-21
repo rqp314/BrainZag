@@ -163,6 +163,9 @@ function loadNBackEngineState() {
             if (state.trainerState.targetEntropy !== undefined) {
                 game.trainer.difficultyController.targetEntropy = state.trainerState.targetEntropy;
             }
+            if (state.trainerState.tse !== undefined) {
+                game.trainer.difficultyController.tse = state.trainerState.tse;
+            }
         }
 
         return game;
@@ -2353,6 +2356,9 @@ function updateStatsDisplay() {
     const targetEntropy = (stats.targetEntropy || 0).toFixed(2);
     const windowEntropy = (stats.windowEntropy || 0).toFixed(2);
     display += makeLine(`Match Rate: ${((stats.matchRate || 0.30) * 100).toFixed(0)}% | Speed: ${((stats.stimulusInterval || 1.0) * 100).toFixed(0)}%`);
+    const tseVal = (stats.tse || 0);
+    const tseRuns = tseVal < 0.99 ? Math.round(1 / (1 - (1 - 1 / (stats.currentN + 1)) * (1 - tseVal))) : 1;
+    display += makeLine(`TSE: ${(tseVal * 100).toFixed(0)}% (repeat~${tseRuns})`);
     display += makeLine(`Entropy: target=${targetEntropy} window=${windowEntropy}`);
 
     // PI controller state
