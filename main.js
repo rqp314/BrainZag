@@ -551,7 +551,8 @@ function renderActivityHeatmap() {
 
     // Find current streak and calculate 21-day goal
     // (total of 7h training is required, if you train 20min per day)
-    const streakStart = findStreakStart(today, todayStr, elapsedSeconds);
+    // Always assume today counts as a level 4 day so the goal is visible immediately
+    const streakStart = findStreakStart(today, todayStr, 1200);
     let goalDateStr = null;
     if (streakStart) {
         const goalDate = new Date(streakStart);
@@ -643,7 +644,8 @@ function renderActivityHeatmap() {
                         const showDot = goalDateStr && dateStr <= goalDateStr && !isGoal;
                         const dotClass = showDot ? ' heatmap-future-dot' : '';
                         const waveDelay = showDot ? `style="--wave-delay: ${futureCellIndex * 0.08}s"` : '';
-                        html += `<div class="heatmap-cell heatmap-future${goalClass}${dotClass}" ${waveDelay}></div>`;
+                        const goalDelay = isGoal ? `style="--goal-delay: ${0.618 + futureCellIndex * 0.08}s"` : '';
+                        html += `<div class="heatmap-cell heatmap-future${goalClass}${dotClass}" ${waveDelay}${goalDelay}></div>`;
                         if (showDot) futureCellIndex++;
                     } else {
                         html += '<div class="heatmap-cell heatmap-future"></div>';

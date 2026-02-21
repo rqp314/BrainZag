@@ -662,8 +662,21 @@
             font-weight: bold;
             color: #CD1C18;
             line-height: 1;
-            transform: rotate(-10deg);
             display: inline-block;
+            opacity: 0;
+            animation: goalRotate 0.6s ease-out forwards, goalWiggle 1.5s ease-in-out infinite;
+            animation-delay: var(--goal-delay, 1s), calc(var(--goal-delay, 1s) + 0.6s);
+        }
+
+        @keyframes goalRotate {
+            0% { opacity: 0; transform: rotate(-180deg) scale(0.3); }
+            60% { opacity: 1; transform: rotate(15deg) scale(1.1); }
+            100% { opacity: 1; transform: rotate(-10deg) scale(1); }
+        }
+
+        @keyframes goalWiggle {
+            0%, 100% { transform: rotate(-10deg); }
+            50% { transform: rotate(10deg); }
         }
 
         .heatmap-level-0 {
