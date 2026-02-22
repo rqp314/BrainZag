@@ -592,7 +592,7 @@ function renderActivityHeatmap() {
     // Counter for wave animation delay on future cells
     let futureCellIndex = 0;
 
-    let html = '<div class="heatmap-container">';
+    let html = '<div class="heatmap-container" onclick="toggleHeatmapTooltip()">';
 
     // Render each month separately
     months.forEach((monthInfo, monthIndex) => {
@@ -707,6 +707,19 @@ function renderActivityHeatmap() {
     container.innerHTML = html;
 }
 
+let heatmapTooltipTimeout = null;
+function toggleHeatmapTooltip() {
+    const tip = document.getElementById('heatmapTooltip');
+    if (!tip) return;
+
+    if (heatmapTooltipTimeout) clearTimeout(heatmapTooltipTimeout);
+
+    tip.classList.add('visible');
+    heatmapTooltipTimeout = setTimeout(() => {
+        tip.classList.remove('visible');
+    }, 2854);
+}
+
 // Show results banner (overlays grid with heatmap OR stats, not both)
 function showBanner(showStats = false) {
     if (!resultsBanner) return;
@@ -727,6 +740,10 @@ function showBanner(showStats = false) {
 function hideBanner() {
     if (!resultsBanner) return;
     resultsBanner.classList.add('banner-hidden');
+
+    const tip = document.getElementById('heatmapTooltip');
+    if (tip) tip.classList.remove('visible');
+    if (heatmapTooltipTimeout) { clearTimeout(heatmapTooltipTimeout); heatmapTooltipTimeout = null; }
 }
 
 // Initialize daily timer from performanceHistory (single source of truth)
@@ -2093,6 +2110,10 @@ function showResults() {
             ${memoryLoadHtml}
             <br>
             ${insightHtml}
+            <div style="position: absolute; bottom: 8px; right: 12px;">
+                <span id="showHeatmapBtn" style="font-size: 18px; color: #bbb; cursor: pointer; user-select: none; line-height: 1; font-weight: bold;"
+                    onclick="bannerStats.innerHTML=''; renderActivityHeatmap();">▦</span>
+            </div>
         </div>
     `;
 
@@ -2359,11 +2380,6 @@ function updateStatsDisplay() {
     const tseVal = (stats.tse || 0);
     const tseRuns = tseVal < 0.99 ? Math.round(1 / (1 - (1 - 1 / (stats.currentN + 1)) * (1 - tseVal))) : 1;
     display += makeLine(`TSE: ${(tseVal * 100).toFixed(0)}% (repeat~${tseRuns})`);
-    display += makeLine(`Entropy: target=${targetEntropy} window=${windowEntropy}`);
-
-    // PI controller state
-    const piIntegral = (stats.workingMemory.piIntegral || 0).toFixed(2);
-    display += makeLine(`PI Integral: ${piIntegral}`);
 
     // Player capacity status
     display += '├────────────────────────────────────────────────────┤\n';

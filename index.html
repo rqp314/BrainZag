@@ -993,6 +993,39 @@
             border-top-color: rgba(50, 50, 50, 0.9);
         }
 
+        /* Heatmap goal tooltip */
+        #heatmapTooltip {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) scale(0.9);
+            background: rgba(50, 50, 50, 0.9);
+            color: white;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 100;
+        }
+
+        #heatmapTooltip.visible {
+            opacity: 1;
+            transform: translateX(-50%) scale(1);
+        }
+
+        #heatmapTooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-top-color: rgba(50, 50, 50, 0.9);
+        }
+
         /* Desktop: blurred side panels for focused center */
         .side-blur {
             display: none;
@@ -1056,6 +1089,7 @@
 
         <!-- Results Banner: overlays grid, shows heatmap and end stats -->
         <div id="resultsBanner" class="banner-hidden">
+            <div id="heatmapTooltip">Play 20+ min daily, for 21 days to unlock your brain</div>
             <div id="bannerContent">
                 <div id="bannerStats"></div>
                 <div id="bannerHeatmap"></div>
