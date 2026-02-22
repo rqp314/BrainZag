@@ -138,9 +138,9 @@ function generatePositiveInsight(accuracy, roundsPlayed) {
     const insights = [];
 
     // 1. Longest streak
-    if (longestStreak >= 5) {
+    if (longestStreak === 5 || longestStreak === 12 || longestStreak === 16 || longestStreak === 21 || longestStreak === 35) {
         insights.push({
-            text: `Longest streak: ${longestStreak} correct`,
+            text: `${longestStreak} correct in a row!`,
             priority: 10
         });
     }
@@ -246,11 +246,11 @@ function generatePositiveInsight(accuracy, roundsPlayed) {
         });
     }
 
-    // 11. Consecutive days played streak
+    // 11. Consecutive days played
     const dayStreak = getConsecutiveDaysStreak();
     if (dayStreak >= 7) {
         insights.push({
-            text: `${dayStreak} day streak! Unstoppable`,
+            text: `Played ${dayStreak} days in a row! Unstoppable`,
             priority: 11
         });
     } else if (dayStreak >= 3) {
