@@ -139,51 +139,45 @@ let performanceHistory = new Map();
 let pendingPerformance = null; // in memory until stopGame saves it
 let pendingPerformanceDate = null; // which date this pending data belongs to
 
-// Load nback engine state from localStorage (trainer state only, not trial history)
-function loadNBackEngineState() {
+// Load per N level profile from localStorage.
+// Creates a fresh engine and warm starts it with saved data.
+// Recency data (rolling windows) is only restored if the profile is fresh.
+function loadNBackProfile(nLevel) {
     try {
-        const savedState = localStorage.getItem('nbackEngineState');
-        if (!savedState) return null;
+        const raw = localStorage.getItem(`nbackProfile_${nLevel}`);
+        if (!raw) return null;
 
-        const state = JSON.parse(savedState);
+        const profile = JSON.parse(raw);
+        if (!profile.strategic) return null;
 
-        // Recreate the nback engine from saved state
-        const game = new NBackEngine({
-            startN: state.currentN,
-            colors: COLORS
-        });
+        const engine = new NBackEngine({ startN: nLevel, colors: COLORS });
 
-        // Restore internal state if available
-        if (state.trainerState) {
-            game.trainer.trialNumber = state.trainerState.trialNumber || 0;
-            game.trainer.difficultyController.currentUniqueColors = state.trainerState.currentUniqueColors || 2;
-            if (state.trainerState.theta !== undefined) {
-                game.trainer.abilityModel.theta = state.trainerState.theta;
-            }
-            if (state.trainerState.targetEntropy !== undefined) {
-                game.trainer.difficultyController.targetEntropy = state.trainerState.targetEntropy;
-            }
-            if (state.trainerState.tse !== undefined) {
-                game.trainer.difficultyController.tse = state.trainerState.tse;
-            }
-        }
+        const gapMs = Date.now() - (profile.savedAt || 0);
+        const recencyOk = gapMs < AWAY_THRESHOLD;
 
-        return game;
+        engine.warmStart(
+            profile.strategic,
+            recencyOk ? profile.recency : null
+        );
+
+        console.log(`Loaded ${nLevel}-back profile (${recencyOk ? 'full' : 'strategic only'}, gap ${Math.round(gapMs / 1000)}s)`);
+        return engine;
+
     } catch (e) {
-        console.error('Failed to load nback engine state:', e);
+        console.error('Failed to load nback profile:', e);
         return null;
     }
 }
 
-// Save nback engine state to localStorage (trainer state only)
-function saveNBackEngineState() {
+// Save per N level profile to localStorage
+function saveNBackProfile(nLevel) {
     if (!nbackEngine) return;
 
     try {
-        const state = nbackEngine.toJSON();
-        localStorage.setItem('nbackEngineState', JSON.stringify(state));
+        const profile = nbackEngine.toJSON();
+        localStorage.setItem(`nbackProfile_${nLevel}`, JSON.stringify(profile));
     } catch (e) {
-        console.error('Failed to save nback engine state:', e);
+        console.error('Failed to save nback profile:', e);
     }
 }
 
@@ -1200,13 +1194,13 @@ function setupNBackButtons() {
                 return;
             }
 
+            // Save current N profile before switching to new level
+            saveNBackProfile(n);
+            nbackEngine = null;
+
             // Update global n variable and persist
             n = newN;
             localStorage.setItem("selectedN", n.toString());
-
-            // Reset nback engine to use new N level
-            nbackEngine = null;
-            localStorage.removeItem("nbackEngineState");
 
             // Update button appearance
             updateNBackButtons();
@@ -1421,22 +1415,8 @@ if (savedN) {
     n = 1; // Default to 1-back for first time users
 }
 
-// Load nback engine state only if it matches current N selection
-const loadedGame = loadNBackEngineState();
-if (loadedGame) {
-    // Verify that loaded game's N matches current selection
-    const loadedN = loadedGame.getCurrentN();
-    if (loadedN === n) {
-        nbackEngine = loadedGame;
-        console.log(`Loaded nback engine state with ${n}-back`);
-    } else {
-        console.log(`Discarded saved game (was ${loadedN}-back, now ${n}-back)`);
-        localStorage.removeItem('nbackEngineState');
-        nbackEngine = null;
-    }
-} else {
-    nbackEngine = null;
-}
+// Engine is loaded lazily in startGame() via loadNBackProfile(n)
+nbackEngine = null;
 
 // Load trial history and initialize performance tracking
 loadTrialHistory();
@@ -1770,25 +1750,22 @@ function startGame() {
 
     // Initialize or continue nback engine
     if (!nbackEngine) {
-        // Create new nback engine if none exists
-        nbackEngine = new NBackEngine({
-            startN: n,
-            colors: COLORS
-        });
+        nbackEngine = loadNBackProfile(n) || new NBackEngine({ startN: n, colors: COLORS });
     }
 
     // Initialize cell hiding based on how long player was away
     if (wasPlayerAwayTooLong()) {
-        // Player was away > 10 min, reset everything and start fresh
+        // Player was away > 10 min
         deactivateCellHiding();
         accumulatedPlayTime = 0;
         layoutPlayTimeStart = 0;
         cellHidingActive = false;
-        // Reset adaptive engine so player warms up from minimum load again
-        if (nbackEngine) {
-            nbackEngine.reset();
-        }
-        console.log("Player was away > 10 min, starting with full grid + fresh ability model");
+
+        // drop recency but keep strategic knowledge
+        const saved = nbackEngine.toJSON();
+        nbackEngine = new NBackEngine({ startN: n, colors: COLORS });
+        nbackEngine.warmStart(saved.strategic, null);
+        console.log("Player was away > 10 min, drop recency data: rolling windows etc.");
 
     } else {
         // Player returned within 10 min
@@ -2019,7 +1996,7 @@ function stopGame(autoEnded = false) {
     // Save all data to disk on game end
     saveTrialHistory();
     savePerformanceToDisk();
-    saveNBackEngineState();
+    saveNBackProfile(n);
 
     if (rounds >= 1 || autoEnded) {
         showResults();

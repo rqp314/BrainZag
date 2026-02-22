@@ -119,11 +119,11 @@ class AbilityModel {
     // Rolling d' (theta) with EMA smoothing
     this.theta = 1.5;           // Start at moderate ability
     this.thetaAlpha = 0.15;     // EMA smoothing for theta
-    this.thetaHistory = [];     // Last 20 theta values for trend
-    this.thetaHistorySize = 20;
+    this.thetaWindow = [];      // Last 20 theta values for trend
+    this.thetaWindowSize = 20;
 
     // Reaction time tracking
-    this.reactionTimes = [];
+    this.rtWindow = [];
     this.rtWindowSize = 20;
 
     // Total trial count (cumulative, not windowed)
@@ -158,23 +158,23 @@ class AbilityModel {
     this.theta = this.theta * (1 - this.thetaAlpha) + rawDPrime * this.thetaAlpha;
 
     // Store theta history for trend analysis
-    this.thetaHistory.push(this.theta);
-    if (this.thetaHistory.length > this.thetaHistorySize) {
-      this.thetaHistory.shift();
+    this.thetaWindow.push(this.theta);
+    if (this.thetaWindow.length > this.thetaWindowSize) {
+      this.thetaWindow.shift();
     }
 
     // Store RT
     if (reactionTime > 0) {
-      this.reactionTimes.push(reactionTime);
-      if (this.reactionTimes.length > this.rtWindowSize * 2) {
-        this.reactionTimes.shift();
+      this.rtWindow.push(reactionTime);
+      if (this.rtWindow.length > this.rtWindowSize * 2) { // TODO why do we do *2 here ?
+        this.rtWindow.shift();
       }
     }
   }
 
   // Slope of theta over recent history (positive = improving)
   getThetaTrend() {
-    const h = this.thetaHistory;
+    const h = this.thetaWindow;
     if (h.length < 5) return 0;
 
     // Simple linear regression slope
@@ -193,7 +193,7 @@ class AbilityModel {
 
   // RT statistics
   getRTStats() {
-    const rts = this.reactionTimes.slice(-this.rtWindowSize);
+    const rts = this.rtWindow.slice(-this.rtWindowSize);
     if (rts.length < 3) {
       return { median: 800, p90: 1200, cv: 0.2 };
     }
@@ -291,8 +291,8 @@ class AbilityModel {
   reset() {
     this.trialWindow = [];
     this.theta = 1.5;
-    this.thetaHistory = [];
-    this.reactionTimes = [];
+    this.thetaWindow = [];
+    this.rtWindow = [];
     this.totalTrials = 0;
   }
 }
@@ -1193,6 +1193,33 @@ class WorkingMemoryTrainer {
     this.sprtStopper.reset();
   }
 
+  // Apply persisted profile data after a fresh reset.
+  // strategic is always applied (skill level, difficulty calibration).
+  // recency is only passed when the profile is fresh (<10min old);
+  // null means the player was away and rolling windows stay empty.
+  warmStart(strategic, recency) {
+    const ab = this.abilityModel;
+    const dc = this.difficultyController;
+
+    if (strategic) {
+      if (strategic.theta !== undefined) ab.theta = strategic.theta;
+      if (strategic.totalTrials !== undefined) ab.totalTrials = strategic.totalTrials;
+      if (strategic.targetEntropy !== undefined) dc.targetEntropy = strategic.targetEntropy;
+      if (strategic.tse !== undefined) dc.tse = strategic.tse;
+      if (strategic.currentUniqueColors !== undefined) dc.currentUniqueColors = strategic.currentUniqueColors;
+      if (strategic.integral !== undefined) dc.integral = strategic.integral;
+      if (strategic.matchRate !== undefined) dc.matchRate = strategic.matchRate;
+    }
+
+    if (recency) {
+      if (Array.isArray(recency.trialWindow)) ab.trialWindow = recency.trialWindow.slice();
+      if (Array.isArray(recency.thetaWindow)) ab.thetaWindow = recency.thetaWindow.slice();
+      if (Array.isArray(recency.rtWindow)) ab.rtWindow = recency.rtWindow.slice();
+      if (recency.stepHoldCounter !== undefined) dc.stepHoldCounter = recency.stepHoldCounter;
+      if (recency.pendingUniqueColors !== undefined) dc.pendingUniqueColors = recency.pendingUniqueColors;
+    }
+  }
+
   getCurrentN() {
     return this.n;
   }
@@ -1314,16 +1341,32 @@ class NBackEngine {
     this.trainer.reset();
   }
 
+  warmStart(strategic, recency) {
+    this.currentTile = null;
+    this.trainer.warmStart(strategic, recency);
+  }
+
   toJSON() {
+    const ab = this.trainer.abilityModel;
+    const dc = this.trainer.difficultyController;
     return {
       currentN: this.currentN,
-      trainerState: {
-        trialNumber: this.trainer.trialNumber,
-        currentUniqueColors: this.trainer.difficultyController.currentUniqueColors,
-        accuracy: this.trainer.abilityModel.getNormalizedPerformance(),
-        theta: this.trainer.abilityModel.theta,
-        targetEntropy: this.trainer.difficultyController.targetEntropy,
-        tse: this.trainer.difficultyController.tse
+      savedAt: Date.now(),
+      strategic: {
+        theta: ab.theta,
+        targetEntropy: dc.targetEntropy,
+        tse: dc.tse,
+        currentUniqueColors: dc.currentUniqueColors,
+        integral: dc.integral,
+        matchRate: dc.matchRate,
+        totalTrials: ab.totalTrials
+      },
+      recency: {
+        trialWindow: ab.trialWindow.slice(),
+        thetaWindow: ab.thetaWindow.slice(),
+        rtWindow: ab.rtWindow.slice(),
+        stepHoldCounter: dc.stepHoldCounter,
+        pendingUniqueColors: dc.pendingUniqueColors
       }
     };
   }
