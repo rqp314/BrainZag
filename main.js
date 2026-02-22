@@ -1593,11 +1593,15 @@ function nextStimulus() {
     }
 
     // Monitor performance and end if sustained poor performance detected
-    // Uses SPRT (Sequential Probability Ratio Test) from the engine,
-    // with fallback to error count check
+    // Uses SPRT (Sequential Probability Ratio Test) from the engine, with fallback to error count check
     if (nbackEngine && rounds >= 10) {
-        if (nbackEngine.shouldStopSession() || shouldStopForErrors(getRecentTrialsInRound(10))) {
+        if (nbackEngine.shouldStopSession()) {
             stopGame(true);
+            return;
+        }
+        if (nbackEngine.shouldStopForErrors(getRecentTrialsInRound(10))) {
+            stopGame(true);
+            return;
         }
     }
 

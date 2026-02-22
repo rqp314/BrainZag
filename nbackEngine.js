@@ -1232,16 +1232,41 @@ class NBackEngine {
     this.trainer.setExcludedPositions(positions);
   }
 
+  // Cleanup helper when a session is stopped for poor performance.
+  // Resets SPRT and eases difficulty so the next round starts gentler.
+  onPoorPerformanceStop() {
+    this.trainer.difficultyController.onSessionStopped();
+    this.trainer.sprtStopper.reset();
+  }
+
   // Check if SPRT says we should stop the session.
   // When it fires, also penalize the difficulty controller so the next
   // round starts easier instead of staying at the old high difficulty.
   shouldStopSession() {
     if (!this.trainer.sprtStopper.shouldStop()) return false;
 
-    // SPRT fired: force difficulty down for next round
-    this.trainer.difficultyController.onSessionStopped();
-    this.trainer.sprtStopper.reset();
+    this.onPoorPerformanceStop();
     return true;
+  }
+
+  // Fallback if SPRT based session stop didnt fire.
+  // Checks if recent trials show too many errors (50%+ error rate).
+  shouldStopForErrors(recentTrials, errorThreshold = 5) {
+    const respondedTrials = recentTrials.filter(t => t.wasMatch !== null);
+    if (respondedTrials.length < recentTrials.length - 1) return false;
+
+    const errors = respondedTrials.filter(t => {
+      const isFalsePositive = t.userClicked && !t.wasMatch;
+      const isMissedTarget = !t.userClicked && t.wasMatch;
+      return isFalsePositive || isMissedTarget;
+    }).length;
+
+    if (errors >= errorThreshold) {
+      this.onPoorPerformanceStop();
+      return true;
+    }
+
+    return false;
   }
 
   getStats() {
@@ -1304,32 +1329,6 @@ class NBackEngine {
   }
 }
 
-// ============================================================================
-// ROLLING ERROR MONITOR (detect poor performance in current round)
-// ============================================================================
-
-// Note: this is a fallback if SPRT BASED SESSION STOP didnt fire
-// Check if recent trials show too many errors (50%+ error rate)
-// Returns true if game should stop due to poor performance
-// Works regardless of how many targets there were
-// recentTrials: array of trial objects with { wasMatch, userClicked }
-// errorThreshold: how many errors trigger a stop (default 5)
-function shouldStopForErrors(recentTrials, errorThreshold = 5) {
-  // Only check trials that have been responded to (wasMatch is not null)
-  const respondedTrials = recentTrials.filter(t => t.wasMatch !== null);
-  // The most recent one was just shown and hasn't been responded to yet (its wasMatch is null), hence the -1
-  if (respondedTrials.length < recentTrials.length - 1) return false;
-
-  // Count actual ERRORS: false positives + missed targets
-  const errors = respondedTrials.filter(t => {
-    const isFalsePositive = t.userClicked && !t.wasMatch;
-    const isMissedTarget = !t.userClicked && t.wasMatch;
-    return isFalsePositive || isMissedTarget;
-  }).length;
-
-  return errors >= errorThreshold;
-}
-
 // Export for use in other files
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -1339,7 +1338,6 @@ if (typeof module !== 'undefined' && module.exports) {
     AbilityModel,
     DifficultyController,
     SPRTStopper,
-    computeDPrime,
-    shouldStopForErrors
+    computeDPrime
   };
 }
