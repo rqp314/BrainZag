@@ -347,6 +347,24 @@ class DifficultyController {
     this.stepHoldCounter = 0;
     this.pendingUniqueColors = 2;
 
+    // Post level phase system: after N increases, K expansion is gated
+    // behind three TSE phases to prevent overwhelming the player.
+    // Phase 1 (TSE < 0.5): entropy clamped, K fixed at min
+    // Phase 2 (TSE 0.5..0.75): entropy grows slowly, K capped at min+1
+    // Phase 3 (TSE > 0.75): entropy fully adaptive, K can grow +1 per cooldown
+    // Once TSE reaches 1.0, phases graduate and restrictions lift permanently
+    // for this N level so a temporary TSE dip doesnt re-clamp the player.
+    this.kIncreaseCooldown = 0;           // Trials remaining before next K increase allowed
+    this.phaseGraduated = false;          // Set true when TSE first reaches 1.0
+
+    // N-adaptive K cooldown: higher N has more K steps to traverse in phase 3,
+    // so shorter cooldowns prevent the tail from dragging.
+    // N=2: range=1, cooldown=12 (only 1 step total, phase 2 covers it)
+    // N=3: range=2, cooldown=6
+    // N=4: range=3, cooldown=4
+    // N=7: range=6, cooldown=4
+    this.kCooldownTrials = Math.max(4, Math.round(12 / colorRange));
+
     // N-adaptive entropy climb rate: higher N means larger range to traverse,
     // so the per trial delta needs to be proportionally larger.
     // Floor of 0.06 ensures N=2 (range=1) can still reach max in 40 trials.
@@ -384,6 +402,20 @@ class DifficultyController {
       adjustment += 0.15; // Positive adjustment = decrease difficulty
     }
 
+    // ── THREE PHASE POST LEVEL SYSTEM ──────────────────────────────────
+    // After N increases TSE starts at 0 and gates both entropy growth and
+    // K (unique color) expansion through three phases so the player is
+    // never hit with too many new demands at once.
+    //   Phase 1 (TSE < 0.5): Span stabilization. Entropy hard clamped, K at min.
+    //   Phase 2 (TSE 0.5..0.75): Structural stabilization. Entropy grows at
+    //       25% rate, K allowed up to min+1 only.
+    //   Phase 3 (TSE > 0.75): Symbol expansion. Entropy fully adaptive,
+    //       K can increase +1 at a time with cooldown between jumps.
+
+    // Graduate once TSE reaches 1.0: player has fully adapted at this N
+    if (this.tse >= 1.0) this.phaseGraduated = true;
+    const phase = this.phaseGraduated ? 3 : this.tse < 0.5 ? 1 : this.tse < 0.75 ? 2 : 3;
+
     // Map adjustment to entropy delta
     // Positive adjustment (struggling) = decrease entropy, negative (excelling) = increase
     // Asymmetric: increasing is slower than decreasing (harder to earn, easier to lose)
@@ -392,6 +424,23 @@ class DifficultyController {
       entropyDelta = -adjustment * this.entropyClimbRate;
     } else {
       entropyDelta = -adjustment * this.entropyDropRate;
+    }
+
+    // Phase gating on entropy growth (drops are never gated, player can always lose difficulty)
+    if (entropyDelta > 0) {
+      if (phase === 1) {
+        entropyDelta = 0;          // Hard clamp: no entropy growth during span stabilization
+      } else if (phase === 2) {
+        entropyDelta *= 0.25;      // 25% growth rate during structural stabilization
+      }
+      // Phase 3: full rate
+    }
+
+    // Post graduation softening: after phases lift, if TSE dips below 0.7
+    // the player is struggling with transition chaos. Boost entropy drops
+    // by 50% so difficulty sheds faster without re-engaging phase clamps.
+    if (this.phaseGraduated && this.tse < 0.7 && entropyDelta < 0) {
+      entropyDelta *= 1.5;
     }
 
     this.targetEntropy = Math.max(0, Math.min(1, this.targetEntropy + entropyDelta));
@@ -408,6 +457,9 @@ class DifficultyController {
     const targetFloat = this.minUniqueColors + this.targetEntropy * range;
     const candidateColors = Math.round(Math.max(this.minUniqueColors, Math.min(this.maxUniqueColors, targetFloat)));
 
+    // Tick down K increase cooldown
+    if (this.kIncreaseCooldown > 0) this.kIncreaseCooldown--;
+
     if (candidateColors !== this.currentUniqueColors) {
       if (candidateColors === this.pendingUniqueColors) {
         this.stepHoldCounter++;
@@ -421,12 +473,26 @@ class DifficultyController {
         : this.stepHoldDecrease;
 
       if (this.stepHoldCounter >= requiredHold) {
-        // Gate K (unique color count) increases: TSE must be >= 0.5 before allowing more
-        // unique colors. Ensures temporal structure is stabilized before
-        // adding discrimination load. K decreases are never gated.
-        if (candidateColors > this.currentUniqueColors && this.tse < 0.5) {
-          // TSE too low, hold K until transitions stabilize
+        const isIncrease = candidateColors > this.currentUniqueColors;
+
+        if (isIncrease) {
+          // Phase 1: K locked at minimum
+          if (phase === 1) {
+            // blocked
+          // Phase 2: K capped at min+1
+          } else if (phase === 2 && this.currentUniqueColors >= this.minUniqueColors + 1) {
+            // blocked, already at phase 2 ceiling
+          // Phase 3: allow +1 at a time with cooldown between jumps
+          } else if (phase === 3 && this.kIncreaseCooldown > 0) {
+            // blocked, cooling down between K jumps
+          } else {
+            // Allowed: commit +1 only (never skip a step)
+            this.currentUniqueColors = this.currentUniqueColors + 1;
+            this.stepHoldCounter = 0;
+            if (phase === 3) this.kIncreaseCooldown = this.kCooldownTrials;
+          }
         } else {
+          // K decreases are never gated
           this.currentUniqueColors = candidateColors;
           this.stepHoldCounter = 0;
         }
@@ -459,9 +525,10 @@ class DifficultyController {
 
     // ── KNOB 4: TEMPORAL STRUCTURE ENTROPY (TSE) ─────────────────────
     // Controls transition unpredictability. Increases when player excels,
-    // decreases when struggling. Leads K (unique color count) progression:
-    // TSE must reach 0.5 before K can increase, ensuring temporal stability before adding
-    // discrimination load. Uses the same PI adjustment signal as the other knobs.
+    // decreases when struggling. Acts as the phase clock for the post level
+    // system: TSE < 0.5 = phase 1, 0.5..0.75 = phase 2, > 0.75 = phase 3.
+    // This gates both entropy growth and K expansion so difficulty ramps
+    // organically after an N increase.
     let tseDelta;
     if (adjustment < 0) {
       // Player excelling: increase TSE (more transition chaos)
@@ -509,6 +576,9 @@ class DifficultyController {
 
     // Drop TSE aggressively (predictable transitions for recovery)
     this.tse = Math.max(0, this.tse * 0.3);
+
+    // Reset K cooldown so recovery doesnt stall behind a pending timer
+    this.kIncreaseCooldown = 0;
   }
 
   getStats() {
@@ -518,6 +588,7 @@ class DifficultyController {
       minUniqueColors: this.minUniqueColors,
       targetEntropy: this.targetEntropy,
       tse: this.tse,
+      tsePhase: this.phaseGraduated ? 3 : this.tse < 0.5 ? 1 : this.tse < 0.75 ? 2 : 3,
       matchRate: this.matchRate,
       stimulusInterval: this.stimulusInterval,
       piError: this.targetTheta - (this.integral / Math.max(1, Math.abs(this.integral)) * this.Ki),
@@ -1163,6 +1234,7 @@ class WorkingMemoryTrainer {
       fatigueIndex: ability.fatigueIndex,
       targetEntropy: difficulty.targetEntropy,
       tse: difficulty.tse,
+      tsePhase: difficulty.phaseGraduated ? 3 : difficulty.tse < 0.5 ? 1 : difficulty.tse < 0.75 ? 2 : 3,
       windowEntropy: windowEntropy,
       matchRate: difficulty.matchRate,
       stimulusInterval: difficulty.stimulusInterval,
