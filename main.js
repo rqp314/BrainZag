@@ -1579,7 +1579,7 @@ function nextStimulus() {
             stopGame(true);
             return;
         }
-        if (nbackEngine.shouldStopForErrors(getRecentTrialsInRound(10))) {
+        if (nbackEngine.shouldStopForErrors(getRecentTrialsInRound(20))) {
             stopGame(true);
             return;
         }

@@ -537,17 +537,17 @@ class SPRTStopper {
     this.theta1 = 0.8;         // H1: poor performance
     this.logLR = 0;            // Cumulative log likelihood ratio
 
-    // Decision boundaries (from alpha=0.05, beta=0.10)
+    // Decision boundaries (alpha=0.10, beta=0.15 for faster stopping)
     // logLR accumulates log(P(data|H1) / P(data|H0))
     // Positive logLR = evidence for H1 (poor), negative = evidence for H0 (good)
-    this.stopBound = Math.log((1 - 0.10) / 0.05);   // ~2.89, accept H1 (poor, stop session)
-    this.acceptBound = Math.log(0.10 / (1 - 0.05));  // ~-2.25, accept H0 (performing OK)
+    this.stopBound = Math.log((1 - 0.15) / 0.10);    // ~2.14, accept H1 (poor, stop session)
+    this.acceptBound = Math.log(0.15 / (1 - 0.10));   // ~-1.79, accept H0 (performing OK)
 
     this.decision = 'continue'; // 'continue', 'stop'
     this.trialsRecorded = 0;
   }
 
-  recordTrial(correct, wasMatch) {
+  recordTrial(correct, wasMatch, userClicked) {
     this.trialsRecorded++;
 
     // Likelihood of this outcome under H0 (theta=1.5) vs H1 (theta=0.8)
@@ -563,7 +563,16 @@ class SPRTStopper {
     // Accumulate log likelihood ratio (H1 vs H0)
     // Correct trials push logLR negative (toward H0), errors push positive (toward H1)
     if (pObserved0 > 0 && pObserved1 > 0) {
-      this.logLR += Math.log(pObserved1 / pObserved0);
+      let delta = Math.log(pObserved1 / pObserved0);
+
+      // Not clicking on a non match is passive (no active decision), so discount it heavily.
+      // Without this, an overwhelmed player who stops clicking gets "credit" for correct
+      // rejections that wash out the signal from missed targets.
+      if (!wasMatch && !userClicked) {
+        delta *= 0.25;
+      }
+
+      this.logLR += delta;
     }
 
     // Check boundaries
@@ -1089,7 +1098,7 @@ class WorkingMemoryTrainer {
       this.difficultyController.update(this.abilityModel);
 
       // SPRT stopper tracks trial outcomes
-      this.sprtStopper.recordTrial(correct, wasMatch);
+      this.sprtStopper.recordTrial(correct, wasMatch, userClicked);
     }
 
     return {
@@ -1277,7 +1286,7 @@ class NBackEngine {
   }
 
   // Fallback if SPRT based session stop didnt fire.
-  // Checks if recent trials show too many errors (50%+ error rate).
+  // Checks if recent trials show too many errors.
   shouldStopForErrors(recentTrials, errorThreshold = 5) {
     const respondedTrials = recentTrials.filter(t => t.wasMatch !== null);
     if (respondedTrials.length < recentTrials.length - 1) return false;
