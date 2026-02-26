@@ -328,8 +328,8 @@ class DifficultyController {
     // because the n back constraint forces a switch once the buffer
     // catches up to the run color.
     this.tse = 0.0;
-    this.tseClimbRate = 0.06;   // Same base rate as entropy climb
-    this.tseDropRate = 0.12;    // 2x faster to drop (same asymmetry)
+    this.tseClimbRate = 0.03;   // Half of entropy climb: TSE is a phase clock, not a sprint
+    this.tseDropRate = 0.06;    // 2x faster to drop (same asymmetry)
 
     // Unique colors (derived from entropy)
     this.minUniqueColors = 2;
