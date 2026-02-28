@@ -529,6 +529,15 @@ class DifficultyController {
             this.stepHoldCounter = 0;
             if (phase === 3) this.kIncreaseCooldown = this.kCooldownTrials;
 
+            // Drop TSE so the player gets predictable transitions while
+            // adapting to the new color vocabulary. Larger drop at lower K
+            // (more room for transition chaos), smaller near max K (window
+            // constraint already limits run length).
+            const kProgress = (this.currentUniqueColors - this.minUniqueColors)
+              / (this.maxUniqueColors - this.minUniqueColors);
+            const tseRetain = 0.4 + 0.5 * kProgress;
+            this.tse *= tseRetain;
+
             // Activate sustain gate for the new K level
             let sustainWindow = this.sustainTrialsRequired;
             if (this.fallbackCount > 0 && !this.sustainDoubled) {
