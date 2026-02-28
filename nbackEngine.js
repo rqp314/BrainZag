@@ -377,6 +377,15 @@ class DifficultyController {
     // No LPF on entropy. The step hold counter is the sole gate preventing
     // jumpy color count changes. Direct accumulation ensures a flawless player
     // can traverse the full color range within a 40 trial round.
+
+    // Sustain gate: after K increases, require sustained good performance
+    // before allowing the next K increase. Prevents "touch and advance" pattern.
+    this.sustainTrialsRequired = 8;     // base sustain window
+    this.sustainTrialsRemaining = 0;    // countdown; 0 = no active sustain
+    this.sustainKTarget = 0;            // the K value being sustained
+    this.sustainFailed = false;         // set true if performance drops during sustain
+    this.fallbackCount = 0;             // how many times player fell back to this K
+    this.sustainDoubled = false;        // whether sustain was already doubled (cap at 1x doubling)
   }
 
   update(abilityModel) {
@@ -400,6 +409,32 @@ class DifficultyController {
     // Recovery: when theta trending down and fatigue rising, ease off
     if (trend < -0.01 && fatigue > 0.5) {
       adjustment += 0.15; // Positive adjustment = decrease difficulty
+    }
+
+    // ── SUSTAIN GATE CHECK ───────────────────────────────────────────
+    // After a K increase, the player must sustain theta >= 85% of target
+    // for sustainTrialsRequired trials. If performance drops, K reverts.
+    if (this.sustainTrialsRemaining > 0) {
+      this.sustainTrialsRemaining--;
+
+      if (theta < this.targetTheta * 0.85) {
+        this.sustainFailed = true;
+      }
+
+      if (this.sustainFailed) {
+        // Revert K increase
+        if (this.currentUniqueColors > this.minUniqueColors) {
+          this.currentUniqueColors--;
+          this.fallbackCount++;
+        }
+        this.sustainTrialsRemaining = 0;
+        this.sustainFailed = false;
+        this.sustainKTarget = 0;
+      } else if (this.sustainTrialsRemaining === 0) {
+        // Sustained successfully, consolidate
+        this.fallbackCount = 0;
+        this.sustainKTarget = 0;
+      }
     }
 
     // ── THREE PHASE POST LEVEL SYSTEM ──────────────────────────────────
@@ -476,13 +511,16 @@ class DifficultyController {
         const isIncrease = candidateColors > this.currentUniqueColors;
 
         if (isIncrease) {
-          // Phase 1: K locked at minimum
-          if (phase === 1) {
+          // Block K increases while sustain gate is active
+          if (this.sustainTrialsRemaining > 0) {
+            // blocked, sustaining current K level
+            // Phase 1: K locked at minimum
+          } else if (phase === 1) {
             // blocked
-          // Phase 2: K capped at min+1
+            // Phase 2: K capped at min+1
           } else if (phase === 2 && this.currentUniqueColors >= this.minUniqueColors + 1) {
             // blocked, already at phase 2 ceiling
-          // Phase 3: allow +1 at a time with cooldown between jumps
+            // Phase 3: allow +1 at a time with cooldown between jumps
           } else if (phase === 3 && this.kIncreaseCooldown > 0) {
             // blocked, cooling down between K jumps
           } else {
@@ -490,6 +528,15 @@ class DifficultyController {
             this.currentUniqueColors = this.currentUniqueColors + 1;
             this.stepHoldCounter = 0;
             if (phase === 3) this.kIncreaseCooldown = this.kCooldownTrials;
+
+            // Activate sustain gate for the new K level
+            let sustainWindow = this.sustainTrialsRequired;
+            if (this.fallbackCount > 0 && !this.sustainDoubled) {
+              sustainWindow *= 2;
+              this.sustainDoubled = true;
+            }
+            this.sustainTrialsRemaining = sustainWindow;
+            this.sustainKTarget = this.currentUniqueColors;
           }
         } else {
           // K decreases are never gated
@@ -1290,6 +1337,8 @@ class WorkingMemoryTrainer {
       if (strategic.currentUniqueColors !== undefined) dc.currentUniqueColors = strategic.currentUniqueColors;
       if (strategic.integral !== undefined) dc.integral = strategic.integral;
       if (strategic.matchRate !== undefined) dc.matchRate = strategic.matchRate;
+      if (strategic.fallbackCount !== undefined) dc.fallbackCount = strategic.fallbackCount;
+      if (strategic.sustainDoubled !== undefined) dc.sustainDoubled = strategic.sustainDoubled;
     }
 
     if (recency) {
@@ -1495,7 +1544,9 @@ class NBackEngine {
         currentUniqueColors: dc.currentUniqueColors,
         integral: dc.integral,
         matchRate: dc.matchRate,
-        totalTrials: ab.totalTrials
+        totalTrials: ab.totalTrials,
+        fallbackCount: dc.fallbackCount,
+        sustainDoubled: dc.sustainDoubled
       },
       recency: {
         trialWindow: ab.trialWindow.slice(),
