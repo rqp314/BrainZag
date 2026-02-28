@@ -1377,6 +1377,61 @@ class NBackEngine {
     return false;
   }
 
+  // Assess whether a manual stop was likely due to difficulty.
+  // Returns a severity factor 0..1 (0 = neutral stop, 1 = definitely too hard).
+  assessManualStop() {
+    const sprt = this.trainer.sprtStopper;
+    const ab = this.trainer.abilityModel;
+
+    // Need minimum 10 trials for this logic
+    if (sprt.trialsRecorded < 10) return 0;
+
+    // Signal 1: SPRT proximity (how close to the stop boundary)
+    const sprtRatio = Math.max(0, sprt.logLR / sprt.stopBound);
+
+    // Signal 2: Declining accuracy in last 5 trials
+    const window = ab.trialWindow.slice(-5);
+    let declineSignal = 0;
+    if (window.length >= 5) {
+      const errors = window.filter(t => t.wasMatch !== t.userClicked).length;
+      // 3+ errors in last 5 = strong decline signal
+      declineSignal = Math.min(1, Math.max(0, (errors - 1) / 3));
+    }
+
+    // Combine: max of the two signals (either one is sufficient evidence)
+    const severity = Math.max(sprtRatio, declineSignal);
+
+    // Threshold: only act if severity > 0.7
+    if (severity < 0.7) return 0;
+
+    return severity;
+  }
+
+  // Apply scaled difficulty reduction for manual stops that appear difficulty related.
+  onManualStop() {
+    const severity = this.assessManualStop();
+    if (severity === 0) return false; // neutral stop, no adjustment
+
+    const dc = this.trainer.difficultyController;
+
+    // Scale the onSessionStopped adjustments by severity
+    dc.targetEntropy = Math.max(0, dc.targetEntropy * (1 - 0.5 * severity));
+
+    if (severity > 0.9 && dc.currentUniqueColors > dc.minUniqueColors) {
+      dc.currentUniqueColors--;
+    }
+
+    dc.integral *= (1 - severity);
+    dc.matchRate = Math.min(0.40, dc.matchRate + 0.05 * severity);
+    dc.tse = Math.max(0, dc.tse * (1 - 0.7 * severity));
+    dc.kIncreaseCooldown = 0;
+
+    // Reset SPRT for next round
+    this.trainer.sprtStopper.reset();
+
+    return true; // adjustments were applied
+  }
+
   getStats() {
     const stats = this.trainer.getStats();
 

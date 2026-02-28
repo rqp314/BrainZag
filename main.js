@@ -2011,6 +2011,11 @@ function stopGame(autoEnded = false) {
         applyDeactivatedCells();
     }
 
+    // Check if manual stop was difficulty related
+    if (!autoEnded && nbackEngine && rounds >= 10) {
+        nbackEngine.onManualStop();
+    }
+
     // Save all data to disk on game end
     saveTrialHistory();
     savePerformanceToDisk();
