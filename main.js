@@ -155,12 +155,30 @@ function loadNBackProfile(nLevel) {
         const gapMs = Date.now() - (profile.savedAt || 0);
         const recencyOk = gapMs < AWAY_THRESHOLD;
 
+        // Decay strategic state toward baseline for extended absences.
+        // Linear: starts immediately, full reset at 96h (4 days).
+        // 8h: ~8%, 12h: ~12.5%, 24h: 25%, 48h: 50%, 96h+: 100%
+        const gapHours = gapMs / (1000 * 60 * 60);
+        if (gapHours > 0) {
+            const decayFactor = Math.min(1, gapHours / 96);
+
+            profile.strategic.theta = profile.strategic.theta + (1.5 - profile.strategic.theta) * decayFactor;
+            profile.strategic.targetEntropy = profile.strategic.targetEntropy * (1 - decayFactor);
+            profile.strategic.tse = profile.strategic.tse + (0.0 - profile.strategic.tse) * decayFactor;
+            profile.strategic.integral = profile.strategic.integral * (1 - decayFactor);
+            profile.strategic.matchRate = profile.strategic.matchRate + (0.30 - profile.strategic.matchRate) * decayFactor;
+
+            // K decays toward min (2). Round down so partial decay never increases K
+            const decayedK = profile.strategic.currentUniqueColors + (2 - profile.strategic.currentUniqueColors) * decayFactor;
+            profile.strategic.currentUniqueColors = Math.max(2, Math.round(decayedK));
+        }
+
         engine.warmStart(
             profile.strategic,
             recencyOk ? profile.recency : null
         );
 
-        console.log(`Loaded ${nLevel}-back profile (${recencyOk ? 'full' : 'strategic only'}, gap ${Math.round(gapMs / 1000)}s)`);
+        console.log(`Loaded ${nLevel}-back profile (${recencyOk ? 'full' : 'strategic only'}, gap ${Math.round(gapMs / 1000)}s, decay ${(Math.min(1, gapHours / 96) * 100).toFixed(1)}%)`);
         return engine;
 
     } catch (e) {
