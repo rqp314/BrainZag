@@ -107,6 +107,9 @@ let recentInsights = []; // avoid repeating the same insight recently
 let roundLocked = false;
 let currentActiveCell = null; // track the cell currently showing stimulus
 let currentBgCell = null; // track corresponding background cell
+let missedShakeTimerId = null; // pending headshake timeout for missed match
+let missedShakeActive = false; // true while headshake animation is playing
+let falsePositiveLocked = false; // true if current round was locked by a false positive
 let coloredCellVisible = false; // track if colored cell is currently visible
 let hideTimeout = null; // track timeout for hiding colored cell
 let speedMultiplier = 1; // 1 = normal speed, 2 = double speed
@@ -1499,6 +1502,7 @@ function nextStimulus() {
 
     // Now unlock for the current round
     roundLocked = false;
+    falsePositiveLocked = false;
 
     // Start timing for this new trial
     reactionTimer.startTrial();
@@ -1552,6 +1556,8 @@ function nextStimulus() {
         clearTimeout(hideTimeout);
     }
 
+    const displayTime = IS_LOCAL_HOST ? getAdaptiveDisplayTime() / speedMultiplier : getAdaptiveDisplayTime();
+
     hideTimeout = setTimeout(() => {
         // Double check game is still running before hiding
         if (!isRunning) {
@@ -1560,9 +1566,27 @@ function nextStimulus() {
         randomCell.style.background = "transparent";
         randomCell.style.outline = "none";
         coloredCellVisible = false;
-        // Don't restore squish animation if it's running
-        // Just let the cell disappear
-    }, IS_LOCAL_HOST ? getAdaptiveDisplayTime() / speedMultiplier : getAdaptiveDisplayTime());
+
+        // If user missed a match, schedule headshake on bg cell to finish before next stimulus
+        if (actualIsMatch && index > n && !roundLocked) {
+            const savedBgCell = currentBgCell;
+            const interval = IS_LOCAL_HOST ? getAdaptiveInterval() / speedMultiplier : getAdaptiveInterval();
+            const remainingUntilNext = interval - displayTime;
+            const shakeDelay = Math.max(0, remainingUntilNext - 500);
+            missedShakeTimerId = setTimeout(() => {
+                missedShakeTimerId = null;
+                if (savedBgCell && isRunning) {
+                    missedShakeActive = true;
+                    savedBgCell.classList.add("head-shake");
+                    savedBgCell.addEventListener("animationend", function handler() {
+                        missedShakeActive = false;
+                        savedBgCell.classList.remove("head-shake");
+                        savedBgCell.removeEventListener("animationend", handler);
+                    });
+                }
+            }, shakeDelay);
+        }
+    }, displayTime);
 
     updateRoundDisplay();
     updateStatsDisplay();
@@ -1614,17 +1638,23 @@ function clearGrid() {
     overlayGrid.querySelectorAll(".cell").forEach(cell => {
         cell.style.background = "transparent";
         cell.style.outline = "none";
-        cell.classList.remove("squish-right", "squish-left");
+        cell.classList.remove("squish-right", "squish-left", "head-shake");
     });
 
-    // Clear background cell squish animations
+    // Clear background cell animations
     document.querySelectorAll(".bg-cell").forEach(cell => {
-        cell.classList.remove("squish-right", "squish-left");
+        cell.classList.remove("squish-right", "squish-left", "head-shake");
     });
 
     currentActiveCell = null;
     currentBgCell = null;
     coloredCellVisible = false;
+    missedShakeActive = false;
+
+    if (missedShakeTimerId) {
+        clearTimeout(missedShakeTimerId);
+        missedShakeTimerId = null;
+    }
 
     if (hideTimeout) {
         clearTimeout(hideTimeout);
@@ -1644,7 +1674,7 @@ function resetAllCells() {
         cell.style.outline = "none";
         cell.style.transform = "";
         cell.style.opacity = "";
-        cell.classList.remove("squish-right", "squish-left");
+        cell.classList.remove("squish-right", "squish-left", "head-shake");
         // Force reflow to ensure styles are applied
         void cell.offsetWidth;
     });
@@ -1653,7 +1683,7 @@ function resetAllCells() {
     bgCells.forEach(cell => {
         cell.style.transform = "";
         cell.style.opacity = "";
-        cell.classList.remove("squish-right", "squish-left");
+        cell.classList.remove("squish-right", "squish-left", "head-shake");
         // Force reflow
         void cell.offsetWidth;
     });
@@ -1662,33 +1692,46 @@ function resetAllCells() {
 function handleMatch() {
     if (!isRunning) return;
 
+    // During missed match headshake, ignore clicks entirely
+    if (missedShakeActive) return;
+
+    // Click before headshake started, cancel it
+    if (missedShakeTimerId) {
+        clearTimeout(missedShakeTimerId);
+        missedShakeTimerId = null;
+    }
+
+    // Check if this is a false positive (for animation choice)
+    const isFalsePositive = falsePositiveLocked || (index > n && !roundLocked && !getLastTrialInfo().wasMatch);
+
     // Randomly choose squish direction
     const squishClass = Math.random() < 0.5 ? "squish-right" : "squish-left";
+    const animClass = isFalsePositive ? "head-shake" : squishClass;
 
-    // Squish the background cell
+    // Animate the background cell
     if (currentBgCell) {
-        currentBgCell.classList.remove("squish-right", "squish-left");
+        currentBgCell.classList.remove("squish-right", "squish-left", "head-shake");
         void currentBgCell.offsetWidth;
-        currentBgCell.classList.add(squishClass);
+        currentBgCell.classList.add(animClass);
 
         setTimeout(() => {
             if (currentBgCell) {
-                currentBgCell.classList.remove("squish-right", "squish-left");
+                currentBgCell.classList.remove("squish-right", "squish-left", "head-shake");
             }
-        }, 120);
+        }, isFalsePositive ? 500 : 120);
     }
 
-    // Also squish the colored overlay cell if it exists and is visible
+    // Also animate the colored overlay cell if it exists and is visible
     if (currentActiveCell && coloredCellVisible) {
-        currentActiveCell.classList.remove("squish-right", "squish-left");
+        currentActiveCell.classList.remove("squish-right", "squish-left", "head-shake");
         void currentActiveCell.offsetWidth;
-        currentActiveCell.classList.add(squishClass);
+        currentActiveCell.classList.add(animClass);
 
         setTimeout(() => {
             if (currentActiveCell) {
-                currentActiveCell.classList.remove("squish-right", "squish-left");
+                currentActiveCell.classList.remove("squish-right", "squish-left", "head-shake");
             }
-        }, 120);
+        }, isFalsePositive ? 500 : 120);
     }
 
     // Don't count clicks before the first n is reached for accuracy
@@ -1711,6 +1754,7 @@ function handleMatch() {
     } else {
         incorrectMatches++;
         currentStreak = 0; // break streak on false positive
+        falsePositiveLocked = true;
     }
 
     // Record response in nback engine
