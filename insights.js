@@ -134,7 +134,7 @@ function getConsecutiveDaysStreak() {
 }
 
 // Catalog of possible insights with priority weights
-function generatePositiveInsight(accuracy, roundsPlayed) {
+function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
     const insights = [];
 
     // 1. Longest streak
@@ -148,10 +148,13 @@ function generatePositiveInsight(accuracy, roundsPlayed) {
     // 3. Better accuracy than last round
     if (lastRoundAccuracy !== null && accuracy > lastRoundAccuracy) {
         const improvement = accuracy - lastRoundAccuracy;
-        insights.push({
-            text: `+${improvement}% better than last round`,
-            priority: improvement >= 10 ? 9 : 6
-        });
+        if (improvement >= 90) {
+            insights.push({ text: `90% improvement compared to last round!`, priority: 10 });
+        } else if (improvement >= 70) {
+            insights.push({ text: `70% improvement compared to last round!`, priority: 9 });
+        } else if (improvement >= 50) {
+            insights.push({ text: `50% improvement compared to last round`, priority: 7 });
+        }
     }
 
     // 4. Perfect or near-perfect accuracy
@@ -329,16 +332,16 @@ function generatePositiveInsight(accuracy, roundsPlayed) {
     }
 
     // 17. Encouragement for tough rounds (low accuracy)
-    if (accuracy < 50 && roundsPlayed >= 6) {
+    if ((accuracy < 50 || easyMemoryLoad) && roundsPlayed >= 6) {
         insights.push({
             text: motivation[Math.floor(Math.random() * motivation.length)],
-            priority: 6
+            priority: 7
         });
 
     } else if (accuracy >= 50 && accuracy < 70 && roundsPlayed >= 6) {
         insights.push({
             text: midMessages[Math.floor(Math.random() * midMessages.length)],
-            priority: 3
+            priority: 6
         });
     }
 

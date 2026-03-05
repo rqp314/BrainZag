@@ -2080,8 +2080,7 @@ function showResults() {
         }
 
         const TOTAL_SEGMENTS = 4;
-        const loadRatio = (avgLoad - 1) / (maxUniqueColors - 1);
-        const filledSegments = Math.round(loadRatio * TOTAL_SEGMENTS);
+        const filledSegments = Math.round(loadPercent * TOTAL_SEGMENTS);
         const emptySegments = TOTAL_SEGMENTS - filledSegments;
         const loadBar = '█'.repeat(filledSegments) + '░'.repeat(emptySegments);
         memoryLoadHtml = `
@@ -2091,7 +2090,7 @@ function showResults() {
     }
 
     // Generate positive insight
-    const insightText = generatePositiveInsight(percentage, rounds);
+    const insightText = generatePositiveInsight(percentage, rounds, loadPercent <= 0.33);
     const insightHtml = insightText ? `<div style="font-size: 13px; margin-top: 7px; font-weight: 500; font-style: italic;"><span>${insightText}</span></div>` : '';
 
     // Save accuracy for next round comparison
