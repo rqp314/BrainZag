@@ -370,6 +370,7 @@ const CHUNK_SECONDS = 1200; // 20 minutes per chunk
 let minuteIndicators = [];  // DOM elements for minute markers
 let minutePositions = []; // Fibonacci-based minute positions (in minutes)
 let isAnimatingBar = false; // track if progress bar is animating (during stopGame)
+let goalReachedBeforeGame = false; // was 20min already hit before this game round started
 
 // ================== Performance History (Map<dateStr, PerformanceData>) ==================
 // heatmap + progress: { n, hits, misses, falseAlarms, correctRejections, sumLoad, maxLoad, playTime }
@@ -1800,6 +1801,7 @@ function startGame() {
     currentStreak = 0;
     longestStreak = 0;
     isRunning = true;
+    goalReachedBeforeGame = elapsedSeconds >= HEATMAP_TARGET_SECONDS;
     reactionTimer.reset(); // reset reaction timer for new game
 
     // Stop any locked button vibration from end screen
@@ -2073,6 +2075,11 @@ function stopGame(autoEnded = false) {
         showBanner(false);
     }
 
+    // Confetti when the daily 20min goal was just reached during this game
+    if (!goalReachedBeforeGame && elapsedSeconds >= HEATMAP_TARGET_SECONDS) {
+        setTimeout(() => launchConfetti(), 600);
+    }
+
     updateStatsDisplay();
 }
 
@@ -2089,6 +2096,79 @@ function updateRoundProgressCircle() {
 
     const progress = Math.min(rounds / TOTAL_ROUNDS, 1);
     roundProgressCircle.style.setProperty('--fill-pct', (progress * 100).toFixed(1) + '%');
+}
+
+// ------------------ Confetti ------------------
+
+function launchConfetti() {
+    const container = document.getElementById("confettiContainer");
+    const gridEl = document.getElementById("grid");
+    if (!container || !gridEl) return;
+
+    const screenW = window.innerWidth;
+    const gridBottom = gridEl.getBoundingClientRect().bottom;
+    const blockSize = screenW <= 480 ? 15 : 13;
+
+    const CONFETTI_COUNT = 120;
+    const confettiColors = COLORS.map(c => c.color);
+
+    for (let i = 0; i < CONFETTI_COUNT; i++) {
+        const block = document.createElement("div");
+        block.className = "confetti-block";
+
+        // Random color from game colors
+        const color = confettiColors[Math.floor(Math.random() * confettiColors.length)];
+        block.style.background = color;
+
+        // Random horizontal position across the screen
+        const startX = Math.random() * (screenW - blockSize);
+        block.style.left = startX + "px";
+
+        // Start above the screen
+        block.style.top = -blockSize + "px";
+
+        // Fall from top of screen to grid bottom
+        const fallDistance = gridBottom + blockSize;
+        const fallDuration = 1000 + Math.random() * 1000;
+        const startDelay = Math.random() * 800;
+
+
+        // Slight random horizontal drift
+        const drift = (Math.random() - 0.5) * 60;
+        // Random rotation, some spin fast
+        const spinFast = Math.random() < 0.45;
+        const rotation = (Math.random() - 0.5) * (spinFast ? 720 : 220);
+
+        container.appendChild(block);
+
+        // Animate with JS for smooth cross browser support
+        const startTime = performance.now() + startDelay;
+
+        const animate = (now) => {
+            const elapsed = now - startTime;
+            if (elapsed < 0) {
+                requestAnimationFrame(animate);
+                return;
+            }
+
+            const progress = Math.min(elapsed / fallDuration, 1);
+            // Ease in slightly for gravity feel
+            const eased = progress * progress * 0.3 + progress * 0.7;
+            const y = -blockSize + eased * (fallDistance + blockSize);
+            const x = startX + drift * progress;
+            const rot = rotation * progress;
+
+            block.style.transform = `translate(${x - startX}px, ${y + blockSize}px) rotate(${rot}deg)`;
+
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                block.remove();
+            }
+        };
+
+        requestAnimationFrame(animate);
+    }
 }
 
 // ------------------ Results ------------------
@@ -3043,5 +3123,13 @@ if (IS_LOCAL_HOST) {
             testUnlockBtn.textContent = "Test Unlock (Reset)";
         }
     });
+
+    // Debug: Confetti button
+    const confettiBtn = document.getElementById("confettiBtn");
+    if (confettiBtn) {
+        confettiBtn.addEventListener("click", () => {
+            launchConfetti();
+        });
+    }
 
 } // end IS_LOCAL_HOST debug block
