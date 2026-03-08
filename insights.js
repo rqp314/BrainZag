@@ -427,11 +427,8 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
         }
     }
 
-    // No insight selected, fall back to generic messages
-    if (selected === ``) {
-        // 20% chance of showing nothing when nothing special happened
-        if (Math.random() < 0.2) return ``;
-
+    // No insight selected fall back to generic messages
+    if (selected === `` || Math.random() < 0.25) {
         // Pool one random time message and one random other message
         const generic_message = []
         if (timeMessages.length > 0) {
