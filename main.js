@@ -1541,7 +1541,8 @@ function nextStimulus() {
     currentBgCell = bgCells[actualCellIndex];
 
     randomCell.style.background = color;
-    randomCell.style.outline = "1px solid rgba(0, 0, 0, 0.15)"; // fake shadow
+    randomCell.style.outline = "1px solid rgba(0, 0, 0, 0.15)";
+    randomCell.classList.add("cell-colored");
     currentActiveCell = randomCell;
     coloredCellVisible = true;
 
@@ -1567,6 +1568,7 @@ function nextStimulus() {
         }
         randomCell.style.background = "transparent";
         randomCell.style.outline = "none";
+        randomCell.classList.remove("cell-colored");
         coloredCellVisible = false;
 
         // If user missed a match, schedule headshake on bg cell to finish before next stimulus
@@ -1640,7 +1642,7 @@ function clearGrid() {
     overlayGrid.querySelectorAll(".cell").forEach(cell => {
         cell.style.background = "transparent";
         cell.style.outline = "none";
-        cell.classList.remove("squish-right", "squish-left", "head-shake");
+        cell.classList.remove("squish-right", "squish-left", "head-shake", "cell-colored");
     });
 
     // Clear background cell animations
@@ -1676,7 +1678,7 @@ function resetAllCells() {
         cell.style.outline = "none";
         cell.style.transform = "";
         cell.style.opacity = "";
-        cell.classList.remove("squish-right", "squish-left", "head-shake");
+        cell.classList.remove("squish-right", "squish-left", "head-shake", "cell-colored");
         // Force reflow to ensure styles are applied
         void cell.offsetWidth;
     });
@@ -2622,6 +2624,7 @@ if (IS_LOCAL_HOST) {
         cells.forEach((cell, index) => {
             if (index < COLORS.length) {
                 cell.style.background = COLORS[index].color;
+                cell.classList.add("cell-colored");
             }
         });
 
@@ -2647,6 +2650,7 @@ if (IS_LOCAL_HOST) {
         const cells = getPlayableCells();
         cells.forEach(cell => {
             cell.style.background = "transparent";
+            cell.classList.remove("cell-colored");
         });
 
         // Clear extra colors
@@ -2807,6 +2811,7 @@ if (IS_LOCAL_HOST) {
         if (debugPlacedCell) {
             debugPlacedCell.style.background = "transparent";
             debugPlacedCell.style.outline = "none";
+            debugPlacedCell.classList.remove("cell-colored");
         }
 
         const cells = getPlayableCells();
@@ -2833,7 +2838,8 @@ if (IS_LOCAL_HOST) {
 
         // Place the color
         randomCell.style.background = randomColor.color;
-        randomCell.style.outline = "1px solid rgba(0, 0, 0, 0.15)"; // fake shadow
+        randomCell.style.outline = "1px solid rgba(0, 0, 0, 0.15)";
+        randomCell.classList.add("cell-colored");
         debugPlacedCell = randomCell;
 
         console.log(`Debug: Placed ${randomColor.name} (${randomColor.color}) in cell`);

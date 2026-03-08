@@ -517,14 +517,20 @@
 
         .cell {
             background: transparent;
-            border-radius: 8px;
+            border-radius: 18px;
             position: relative;
             width: 85%;
             height: 85%;
-            margin: auto;
+            margin: 4% auto auto auto;
             outline: none;
             transition: transform 0.12s ease-out;
             transform-origin: center;
+        }
+
+        /* 3D block effect */
+        .cell.cell-colored {
+            border-bottom: 4px solid rgba(0, 0, 0, 0.18);
+            border-right: 2px solid rgba(0, 0, 0, 0.15);
         }
 
         .cell.squish-right {
