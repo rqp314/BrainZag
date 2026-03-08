@@ -1155,6 +1155,7 @@ class WorkingMemoryTrainer {
     this.currentTile = null;
     this.lastTrialCorrect = true;
     this.excludedPositions = []; // positions to exclude from tile placement
+    this.recentPositions = []; // track last 3 positions to avoid repeats
   }
 
   setExcludedPositions(positions) {
@@ -1195,7 +1196,7 @@ class WorkingMemoryTrainer {
     // 9. Create tile
     this.currentTile = {
       color: color,
-      position: this.generatePosition(),
+      position: this.generatePosition(targetUniqueColors),
       isMatch: actuallyIsMatch, // Use actual match, not intended match
       currentLoad: memoryState.getCurrentLoad(),
       targetLoad: targetUniqueColors,
@@ -1253,7 +1254,7 @@ class WorkingMemoryTrainer {
     return 'False positive';
   }
 
-  generatePosition() {
+  generatePosition(targetUniqueColors) {
     // Simple random position on 3x3 grid, excluding deactivated cells
     const positions = [];
     for (let row = 0; row < 3; row++) {
@@ -1266,7 +1267,33 @@ class WorkingMemoryTrainer {
         }
       }
     }
-    return positions[Math.floor(Math.random() * positions.length)];
+
+    let chosen;
+
+    // When targetUniqueColors is 2, avoid repeating any of the last 3 positions
+    if (targetUniqueColors === 2 && this.recentPositions.length > 0) {
+      const available = positions.filter(pos =>
+        !this.recentPositions.some(recent => recent.row === pos.row && recent.col === pos.col)
+      );
+      if (available.length > 0) {
+        chosen = available[Math.floor(Math.random() * available.length)];
+      } else {
+        // All positions used recently, fall back to random
+        chosen = positions[Math.floor(Math.random() * positions.length)];
+      }
+    } else {
+      chosen = positions[Math.floor(Math.random() * positions.length)];
+    }
+
+    // Track recent positions (keep last 3)
+    if (targetUniqueColors === 2) {
+      this.recentPositions.push({ row: chosen.row, col: chosen.col });
+      if (this.recentPositions.length > 3) {
+        this.recentPositions.shift();
+      }
+    }
+
+    return chosen;
   }
 
   getStats() {
