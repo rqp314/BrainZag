@@ -656,7 +656,6 @@ function renderActivityHeatmap() {
 
                 // Check if date is in the future (but within 2 weeks for last month)
                 if (cellDate > today) {
-                    const weekendClass = (day === 5 || day === 6) ? ' heatmap-weekend' : '';
                     if (cellDate <= endDate) {
                         const isGoal = dateStr === goalDateStr;
                         const goalClass = isGoal ? ' heatmap-goal' : '';
@@ -665,10 +664,10 @@ function renderActivityHeatmap() {
                         const dotClass = showDot ? ' heatmap-future-dot' : '';
                         const waveDelay = showDot ? `style="--wave-delay: ${futureCellIndex * 0.08}s"` : '';
                         const goalDelay = isGoal ? `style="--goal-delay: ${0.618 + futureCellIndex * 0.08}s"` : '';
-                        html += `<div class="heatmap-cell heatmap-future${weekendClass}${goalClass}${dotClass}" ${waveDelay}${goalDelay}></div>`;
+                        html += `<div class="heatmap-cell heatmap-future${goalClass}${dotClass}" ${waveDelay}${goalDelay}></div>`;
                         if (showDot) futureCellIndex++;
                     } else {
-                        html += `<div class="heatmap-cell heatmap-future${weekendClass}"></div>`;
+                        html += '<div class="heatmap-cell heatmap-future"></div>';
                     }
                     continue;
                 }
