@@ -602,9 +602,6 @@ function renderActivityHeatmap() {
         });
     }
 
-    // Fixed 5 weeks per month for uniform display
-    const WEEKS_PER_MONTH = 5;
-
     // Counter for wave animation delay on future cells
     let futureCellIndex = 0;
 
@@ -639,7 +636,11 @@ function renderActivityHeatmap() {
         html += `<div class="heatmap-month-title">${monthInfo.name}</div>`;
         html += '<div class="heatmap-weeks">';
 
-        for (let week = 0; week < WEEKS_PER_MONTH; week++) {
+        // Calculate actual weeks needed for this month
+        const daysInMonth = monthEnd.getDate();
+        const weeksNeeded = Math.ceil((daysToMonday + daysInMonth) / 7);
+
+        for (let week = 0; week < weeksNeeded; week++) {
             html += '<div class="heatmap-week">';
 
             for (let day = 0; day < 7; day++) {
