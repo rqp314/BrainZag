@@ -33,13 +33,16 @@ COLORS.forEach(c => {
     COLOR_HEX_TO_NAME[c.color] = c.name;
 });
 
+let rounds = 0;
+const TOTAL_ROUNDS = 40;
+
 const DISPLAY_TIME = 500;   // 0.5s stimulus showing
 const INTERVAL_TIME = 2500; // 2.5s between items
 
 // Get adaptive stimulus interval, applying the DifficultyController speed multiplier
 // stimulusInterval: faster (in flow), slower (fatigued), 1.0 = normal
 function getAdaptiveInterval() {
-    const adaptive = nbackEngine
+    const adaptive = (rounds >= 5 && nbackEngine)
         ? (nbackEngine.getStats().stimulusInterval || 1.0)
         : 1.0;
     return INTERVAL_TIME * adaptive;
@@ -47,7 +50,7 @@ function getAdaptiveInterval() {
 
 // Get adaptive display time for how long the stimulus stays visible
 function getAdaptiveDisplayTime() {
-    const adaptive = nbackEngine
+    const adaptive = (rounds >= 5 && nbackEngine)
         ? (nbackEngine.getStats().stimulusInterval || 1.0)
         : 1.0;
     return DISPLAY_TIME * adaptive;
@@ -91,8 +94,6 @@ let n = 1;
 let index = 0;
 let intervalId = null;
 let isRunning = false;
-let rounds = 0;
-const TOTAL_ROUNDS = 40;
 
 let correctMatches = 0;
 let incorrectMatches = 0;
@@ -943,7 +944,7 @@ function updateIndicatorStyles(animatedPercent = null) {
             indicator.style.width = "1px";
             indicator.style.transform = "translateX(-0.5px)";
             if (label) {
-                label.classList.remove("minute-label-bounce", "minute-label-drift");
+                label.classList.remove("minute-label-bounce", "minute-label-drift", "minute-label-drift-down");
                 label.style.color = "rgba(0, 0, 0, 0.4)";
                 label.style.fontWeight = "400";
             }
@@ -956,12 +957,13 @@ function updateIndicatorStyles(animatedPercent = null) {
                 // Apply animation only to the very next indicator's label
                 // Randomly pick between bounce and drift
                 if (isNextIndicator) {
-                    if (!label.classList.contains("minute-label-bounce") && !label.classList.contains("minute-label-drift")) {
-                        const anim = Math.random() < 0.4 ? "minute-label-drift" : "minute-label-bounce";
+                    if (!label.classList.contains("minute-label-bounce") && !label.classList.contains("minute-label-drift") && !label.classList.contains("minute-label-drift-down")) {
+                        const r = Math.random();
+                        const anim = r < 0.333 ? "minute-label-drift" : r < 0.666 ? "minute-label-drift-down" : "minute-label-bounce";
                         label.classList.add(anim);
                     }
                 } else {
-                    label.classList.remove("minute-label-bounce", "minute-label-drift");
+                    label.classList.remove("minute-label-bounce", "minute-label-drift", "minute-label-drift-down");
                 }
                 label.style.color = "rgba(0, 0, 0, 0.8)";
                 label.style.fontWeight = "bold";
@@ -972,7 +974,7 @@ function updateIndicatorStyles(animatedPercent = null) {
             indicator.style.width = "1.5px";
             indicator.style.transform = "translateX(-0.75px)";
             if (label) {
-                label.classList.remove("minute-label-bounce", "minute-label-drift");
+                label.classList.remove("minute-label-bounce", "minute-label-drift", "minute-label-drift-down");
                 label.style.color = "rgba(0, 0, 0, 0.65)";
                 label.style.fontWeight = "600";
             }
@@ -1107,6 +1109,46 @@ function checkAndUnlockNextLevel(nLevel, accuracy, roundsPlayed, colorLoad) {
     return false; // no unlock
 }
 
+// ------------------ Level Mastery System ------------------
+// A level is mastered when: accuracy > 90%, played TOTAL_ROUNDS, color load > 90%
+let masteredLevels = new Set();
+
+function loadMasteredLevels() {
+    try {
+        const saved = localStorage.getItem("masteredLevels");
+        if (saved) {
+            masteredLevels = new Set(JSON.parse(saved));
+        }
+    } catch (e) {
+        console.error("Failed to load mastered levels or init phase:", e);
+        masteredLevels = new Set();
+    }
+}
+
+function saveMasteredLevels() {
+    try {
+        localStorage.setItem("masteredLevels", JSON.stringify([...masteredLevels]));
+    } catch (e) {
+        console.error("Failed to save mastered levels:", e);
+    }
+}
+
+function checkAndAwardMastery(nLevel, accuracy, roundsPlayed, colorLoad) {
+    if (accuracy >= MASTERY_ACCURACY && roundsPlayed >= TOTAL_ROUNDS && colorLoad * 100 >= MASTERY_ACCURACY) {
+        if (!masteredLevels.has(nLevel)) {
+            masteredLevels.add(nLevel);
+            saveMasteredLevels();
+            console.log(`Mastered level ${nLevel}! (${roundsPlayed} rounds at ${accuracy}%, load ${Math.round(colorLoad * 100)}%)`);
+            return true;
+        }
+    }
+    return false;
+}
+
+function isLevelMastered(level) {
+    return masteredLevels.has(level);
+}
+
 // Animate button when unlocked
 function animateUnlockedButton(level) {
     const btn = document.querySelector(`.n-back-btn[data-n="${level}"]`);
@@ -1150,6 +1192,7 @@ function updateNBackButtons() {
         const nValue = parseInt(btn.dataset.n);
         const isSelected = nValue === n;
         const locked = isLevelLocked(nValue);
+        const mastered = isLevelMastered(nValue);
 
         // Get or create text element
         let textEl = btn.querySelector('.n-back-btn-text');
@@ -1157,6 +1200,14 @@ function updateNBackButtons() {
             textEl = document.createElement('span');
             textEl.className = 'n-back-btn-text';
             btn.appendChild(textEl);
+        }
+
+        // Get or create mastery ribbon element
+        let ribbon = btn.querySelector('.mastery-ribbon');
+        if (!ribbon) {
+            ribbon = document.createElement('div');
+            ribbon.className = 'mastery-ribbon hidden';
+            btn.appendChild(ribbon);
         }
 
         // Apply or remove locked class
@@ -1175,11 +1226,19 @@ function updateNBackButtons() {
                 btn.classList.add("large");
                 textEl.textContent = `${nValue}-back`;
                 btn.style.fontSize = "16px";
+                // Show ribbon on selected button if mastered
+                if (mastered) {
+                    ribbon.classList.remove("hidden");
+                } else {
+                    ribbon.classList.add("hidden");
+                }
             } else {
                 // Other buttons: animate to very small with no text
                 btn.classList.remove("large");
                 textEl.textContent = "";
                 btn.style.fontSize = "0";
+                // Hide ribbon on minimized buttons during gameplay
+                ribbon.classList.add("hidden");
             }
         } else {
             // Not playing
@@ -1195,6 +1254,13 @@ function updateNBackButtons() {
                 btn.classList.remove("large");
                 textEl.textContent = nValue;
                 btn.style.fontSize = "11px";
+            }
+
+            // Show ribbon on all mastered unlocked buttons when not playing
+            if (mastered && !locked) {
+                ribbon.classList.remove("hidden");
+            } else {
+                ribbon.classList.add("hidden");
             }
         }
     });
@@ -1415,6 +1481,7 @@ createGrid();
 loadLastActivityTimestamp();
 loadCellHidingState();
 loadUnlockedLevel();
+loadMasteredLevels();
 
 // Show banner with heatmap on page load
 showBanner(false);
@@ -2275,6 +2342,9 @@ function showResults() {
             // Check if we should unlock the next level (requires minimum rounds)
             checkAndUnlockNextLevel(n, percentage, rounds, loadPercent);
 
+            // Check if this level has been mastered
+            checkAndAwardMastery(n, percentage, rounds, loadPercent);
+
             // Update button colors immediately after saving accuracy
             updateNBackButtons();
         }
@@ -2283,40 +2353,40 @@ function showResults() {
     requestAnimationFrame(animateAccuracy);
 
     // Start vibration on locked buttons with staggered delays
-    startLockedButtonVibration();
+    startLockedButtonVibration(loadPercent <= 0.33);
 }
 
-// Start animation on the next locked n-back button only
-// Randomly chooses vibrate (most of the time) or jump (occasionally)
-function startLockedButtonVibration() {
-    const lockedButtons = document.querySelectorAll(".n-back-btn.locked");
-
+// Start animation on a single target button to draw attention
+// If playing at highest unlocked level: animate the first locked button
+// If playing a lower unlocked level: animate the highest unlocked button
+function startLockedButtonVibration(easyMemoryLoad) {
     // Sometimes no animation at all
     if (Math.random() < 0.3)
         return
 
-    // Only animate the first (next) locked button
-    if (lockedButtons.length > 0) {
-        const nextLockedBtn = lockedButtons[0];
+    let targetBtn = null;
 
-        // 80% chance vibrate, 20% chance jump
-        const useJump = Math.random() < 0.2;
-
-        setTimeout(() => {
-            if (useJump) {
-                nextLockedBtn.classList.add("jump");
-            } else {
-                nextLockedBtn.classList.add("vibrate");
-            }
-        }, 100);
+    if (n === highestUnlockedLevel) {
+        if (easyMemoryLoad)
+            return
+        // Playing at highest unlocked: nudge the first locked one
+        const firstLocked = document.querySelector(`.n-back-btn.locked`);
+        if (firstLocked) targetBtn = firstLocked;
+    } else {
+        // Playing a lower level: nudge the highest unlocked button
+        targetBtn = document.querySelector(`.n-back-btn[data-n="${highestUnlockedLevel}"]`);
     }
+
+    if (!targetBtn) return;
+
+    setTimeout(() => {
+        targetBtn.classList.add("jump");
+    }, 100);
 }
 
-// Stop animation on all locked buttons
+// Stop animation on all n-back buttons
 function stopLockedButtonVibration() {
-    const lockedButtons = document.querySelectorAll(".n-back-btn.locked");
-    lockedButtons.forEach(btn => {
-        btn.classList.remove("vibrate");
+    nBackButtons.forEach(btn => {
         btn.classList.remove("jump");
     });
 }
@@ -3128,6 +3198,19 @@ if (IS_LOCAL_HOST) {
             updateNBackButtons();
             testUnlockBtn.textContent = "Test Unlock (Reset)";
         }
+    });
+
+    // Debug: Toggle mastery for current level
+    const testMasteryBtn = document.getElementById("testMasteryBtn");
+    testMasteryBtn.addEventListener("click", () => {
+        if (masteredLevels.has(n)) {
+            masteredLevels.delete(n);
+        } else {
+            masteredLevels.add(n);
+        }
+        saveMasteredLevels();
+        updateNBackButtons();
+        testMasteryBtn.textContent = `Toggle Mastery (${n}: ${masteredLevels.has(n) ? "ON" : "OFF"})`;
     });
 
     // Debug: Confetti button
