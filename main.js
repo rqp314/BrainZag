@@ -1110,6 +1110,7 @@ function checkAndUnlockNextLevel(nLevel, accuracy, roundsPlayed, colorLoad) {
 }
 
 // ------------------ Level Mastery System ------------------
+
 // A level is mastered when: accuracy > UNLOCK_THRESHOLD, played TOTAL_ROUNDS, color load > UNLOCK_THRESHOLD
 let masteredLevels = new Set();
 
@@ -2253,13 +2254,14 @@ function showResults() {
 
     // Get memory load info (session average)
     let memoryLoadHtml = '';
-    let loadPercent = 0; // ratio 0..1, used for unlock check
+    let loadPercent = 0; // ratio 0..1
+    const maxUniqueColors = n + 1;
+    let avgLoad = 1;
     const roundTrials = getCurrentRoundTrials();
     if (nbackEngine && roundTrials.length > 0) {
-        const maxUniqueColors = n + 1;
 
         // Calculate average load across the session
-        const avgLoad = roundTrials.reduce((sum, t) => sum + t.currentLoad, 0) / roundTrials.length;
+        avgLoad = roundTrials.reduce((sum, t) => sum + t.currentLoad, 0) / roundTrials.length;
         const roundedAvg = Math.round(avgLoad * 10) / 10; // round to 1 decimal
 
         // Traffic light color based on load percentage
@@ -2340,10 +2342,10 @@ function showResults() {
             display.textContent = percentage;
 
             // Check if we should unlock the next level (requires minimum rounds)
-            checkAndUnlockNextLevel(n, percentage, rounds, loadPercent);
+            checkAndUnlockNextLevel(n, percentage, rounds, avgLoad / maxUniqueColors);
 
             // Check if this level has been mastered
-            checkAndAwardMastery(n, percentage, rounds, loadPercent);
+            checkAndAwardMastery(n, percentage, rounds, avgLoad / maxUniqueColors);
 
             // Update button colors immediately after saving accuracy
             updateNBackButtons();

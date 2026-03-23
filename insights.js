@@ -232,7 +232,12 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
     }
 
     // 10. Training at a high N level
-    if (n >= 5) {
+    if (n >= 6) {
+        insights.push({
+            text: `${n}-back: becoming the master mind`,
+            priority: 7
+        });
+    } else if (n >= 5) {
         insights.push({
             text: `${n}-back: PRO level`,
             priority: 7
