@@ -1110,7 +1110,7 @@ function checkAndUnlockNextLevel(nLevel, accuracy, roundsPlayed, colorLoad) {
 }
 
 // ------------------ Level Mastery System ------------------
-// A level is mastered when: accuracy > 90%, played TOTAL_ROUNDS, color load > 90%
+// A level is mastered when: accuracy > UNLOCK_THRESHOLD, played TOTAL_ROUNDS, color load > UNLOCK_THRESHOLD
 let masteredLevels = new Set();
 
 function loadMasteredLevels() {
@@ -1134,7 +1134,7 @@ function saveMasteredLevels() {
 }
 
 function checkAndAwardMastery(nLevel, accuracy, roundsPlayed, colorLoad) {
-    if (accuracy >= MASTERY_ACCURACY && roundsPlayed >= TOTAL_ROUNDS && colorLoad * 100 >= MASTERY_ACCURACY) {
+    if (accuracy >= UNLOCK_THRESHOLD && roundsPlayed >= TOTAL_ROUNDS && colorLoad * 100 >= UNLOCK_THRESHOLD) {
         if (!masteredLevels.has(nLevel)) {
             masteredLevels.add(nLevel);
             saveMasteredLevels();
