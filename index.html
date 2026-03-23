@@ -272,21 +272,30 @@
             overflow: hidden;
         }
 
-        /* Mastery ribbon: small corner triangle */
+        /* Mastery ribbon: diagonal band across top right corner */
         .mastery-ribbon {
             position: absolute;
-            top: -1px;
-            right: -1px;
-            width: 0;
-            height: 0;
-            border-style: solid;
-            border-width: 0 14px 14px 0;
-            border-color: transparent #DAA520 transparent transparent;
+            top: 0;
+            right: 0;
+            width: 28px;
+            height: 28px;
+            overflow: hidden;
             border-radius: 0 3px 0 0;
             z-index: 3;
             pointer-events: none;
             opacity: 1;
             transition: opacity 0.15s ease;
+        }
+        .mastery-ribbon::before {
+            content: '';
+            position: absolute;
+            top: 2px;
+            right: -8px;
+            width: 32px;
+            height: 5px;
+            background: #57b9c6;
+            transform: rotate(45deg);
+            box-shadow: 0 0 2px rgba(0,0,0,0.15);
         }
 
         .mastery-ribbon.hidden {
