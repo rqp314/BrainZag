@@ -561,6 +561,13 @@ function findStreakStart(today, todayStr, elapsedSec) {
     return streakStart;
 }
 
+function getHolidayEmoji(dateStr) {
+    const month = parseInt(dateStr.slice(5, 7), 10);
+    const day = parseInt(dateStr.slice(8, 10), 10);
+    if (month === 12 && day === 24) return '🎄';
+    return null;
+}
+
 // Render the activity heatmap (3 months, Monday start, 2 weeks ahead)
 function renderActivityHeatmap() {
     const container = bannerHeatmap;
@@ -656,6 +663,10 @@ function renderActivityHeatmap() {
                     continue;
                 }
 
+                const holidayEmoji = getHolidayEmoji(dateStr);
+                const holidayContent = holidayEmoji ? `<span class="heatmap-holiday">${holidayEmoji}</span>` : '';
+                const holidayClass = holidayEmoji ? ' heatmap-has-holiday' : '';
+
                 // Check if date is in the future (but within 2 weeks for last month)
                 if (cellDate > today) {
                     if (cellDate <= endDate) {
@@ -666,10 +677,10 @@ function renderActivityHeatmap() {
                         const dotClass = showDot ? ' heatmap-future-dot' : '';
                         const waveDelay = showDot ? `style="--wave-delay: ${futureCellIndex * 0.08}s"` : '';
                         const goalDelay = isGoal ? `style="--goal-delay: ${0.618 + futureCellIndex * 0.08}s"` : '';
-                        html += `<div class="heatmap-cell heatmap-future${goalClass}${dotClass}" ${waveDelay}${goalDelay}></div>`;
+                        html += `<div class="heatmap-cell heatmap-future${goalClass}${dotClass}${holidayClass}" ${waveDelay}${goalDelay}>${holidayContent}</div>`;
                         if (showDot) futureCellIndex++;
                     } else {
-                        html += '<div class="heatmap-cell heatmap-future"></div>';
+                        html += `<div class="heatmap-cell heatmap-future${holidayClass}">${holidayContent}</div>`;
                     }
                     continue;
                 }
@@ -712,7 +723,7 @@ function renderActivityHeatmap() {
                     }
                 }
 
-                html += `<div class="heatmap-cell ${colorClass}${todayClass}${streakClass}" title="${dateStr}: ${Math.floor(seconds / 60)}min"></div>`;
+                html += `<div class="heatmap-cell ${colorClass}${todayClass}${streakClass}${holidayClass}" title="${dateStr}: ${Math.floor(seconds / 60)}min">${holidayContent}</div>`;
             }
 
             html += '</div>';
@@ -2270,7 +2281,7 @@ function showResults() {
         if (loadPercent <= 0.33) {
             loadColor = COLORS.find(c => c.name === "green").color; // easy
         } else if (loadPercent <= 0.66) {
-            loadColor = COLORS.find(c => c.name === "yellow").color; // medium
+            loadColor = COLORS.find(c => c.name === "orange").color; // medium
         } else {
             loadColor = COLORS.find(c => c.name === "red").color; // hard
         }

@@ -292,7 +292,7 @@
             top: 2px;
             right: -8px;
             width: 32px;
-            height: 5px;
+            height: 8px;
             background: #57b9c6;
             transform: rotate(45deg);
             box-shadow: 0 0 2px rgba(0,0,0,0.15);
@@ -641,6 +641,21 @@
             width: 13px;
             height: 13px;
             border-radius: 3.14px;
+        }
+
+        .heatmap-has-holiday {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: visible;
+        }
+
+        .heatmap-holiday {
+            font-size: 14px;
+            line-height: 1;
+            z-index: 2;
+            filter: saturate(1.2);
         }
 
         .heatmap-outside {
