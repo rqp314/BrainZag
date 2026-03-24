@@ -259,12 +259,12 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
     if (dayStreak >= 7) {
         insights.push({
             text: `Played ${dayStreak} days in a row! Unstoppable`,
-            priority: 11
+            priority: 7
         });
     } else if (dayStreak >= 3) {
         insights.push({
             text: `${dayStreak} days in a row. Building a habit`,
-            priority: 8
+            priority: 6
         });
     } else if (dayStreak >= 2) {
         insights.push({
