@@ -18,6 +18,7 @@ const motivation = [
     `Success is effort sustained over a long period of time`,
     `Your competition is your distractions`,
     `Failure -> Failure -> Failure -> Success!`,
+    `Can you do another round ?`,
     `This is the part where most people quit`,
     `You're in the arena. That's all that matters`,
     `Pain is just weakness leaving your brain`,
