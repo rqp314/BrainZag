@@ -332,9 +332,9 @@ class DifficultyController {
     this.tseDropRate = 0.06;    // 2x faster to drop (same asymmetry)
 
     // Unique colors (derived from entropy)
-    this.minUniqueColors = 2;
     this.maxUniqueColors = n + 1;
-    this.currentUniqueColors = 2;
+    this.minUniqueColors = Math.max(2, n - 1);
+    this.currentUniqueColors = this.minUniqueColors;
 
     // N-adaptive step hold: scale with the color range so higher N
     // levels dont require unreachable trial counts to progress.
@@ -345,7 +345,7 @@ class DifficultyController {
     this.stepHoldIncrease = Math.max(2, Math.round(6 / colorRange));
     this.stepHoldDecrease = Math.max(1, Math.round(3 / colorRange));
     this.stepHoldCounter = 0;
-    this.pendingUniqueColors = 2;
+    this.pendingUniqueColors = this.minUniqueColors;
 
     // Post level phase system: after N increases, K expansion is gated
     // behind three TSE phases to prevent overwhelming the player.
@@ -1370,7 +1370,7 @@ class WorkingMemoryTrainer {
       if (strategic.totalTrials !== undefined) ab.totalTrials = strategic.totalTrials;
       if (strategic.targetEntropy !== undefined) dc.targetEntropy = strategic.targetEntropy;
       if (strategic.tse !== undefined) dc.tse = strategic.tse;
-      if (strategic.currentUniqueColors !== undefined) dc.currentUniqueColors = strategic.currentUniqueColors;
+      if (strategic.currentUniqueColors !== undefined) dc.currentUniqueColors = Math.max(dc.minUniqueColors, strategic.currentUniqueColors);
       if (strategic.integral !== undefined) dc.integral = strategic.integral;
       if (strategic.matchRate !== undefined) dc.matchRate = strategic.matchRate;
       if (strategic.fallbackCount !== undefined) dc.fallbackCount = strategic.fallbackCount;
@@ -1382,7 +1382,7 @@ class WorkingMemoryTrainer {
       if (Array.isArray(recency.thetaWindow)) ab.thetaWindow = recency.thetaWindow.slice();
       if (Array.isArray(recency.rtWindow)) ab.rtWindow = recency.rtWindow.slice();
       if (recency.stepHoldCounter !== undefined) dc.stepHoldCounter = recency.stepHoldCounter;
-      if (recency.pendingUniqueColors !== undefined) dc.pendingUniqueColors = recency.pendingUniqueColors;
+      if (recency.pendingUniqueColors !== undefined) dc.pendingUniqueColors = Math.max(dc.minUniqueColors, recency.pendingUniqueColors);
     }
   }
 

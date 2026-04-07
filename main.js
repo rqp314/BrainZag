@@ -980,14 +980,14 @@ function updateIndicatorStyles(animatedPercent = null) {
                 label.style.fontWeight = "bold";
             }
         } else {
-            // Further ahead indicators - all should have the same less bold style
-            indicator.style.background = "rgba(0, 0, 0, 0.45)";
-            indicator.style.width = "1.5px";
-            indicator.style.transform = "translateX(-0.75px)";
+            // Further ahead indicators - more faded style
+            indicator.style.background = "rgba(0, 0, 0, 0.25)";
+            indicator.style.width = "1px";
+            indicator.style.transform = "translateX(-0.5px)";
             if (label) {
                 label.classList.remove("minute-label-bounce", "minute-label-drift", "minute-label-drift-down");
-                label.style.color = "rgba(0, 0, 0, 0.65)";
-                label.style.fontWeight = "600";
+                label.style.color = "rgba(0, 0, 0, 0.35)";
+                label.style.fontWeight = "400";
             }
         }
     });
@@ -1362,9 +1362,21 @@ function hasThreeInLine(cells) {
     return false;
 }
 
-// Select 0-3 random cells to deactivate for visual variety
+// Get max hidden cells allowed based on current memory load color
+// green (easy) = max 1, orange (medium) = max 2, red (hard) = max 3
+function getMaxHiddenCells() {
+    if (!nbackEngine) return 1;
+    const wm = nbackEngine.getStats().workingMemory;
+    const loadPercent = (wm.currentLoad - 1) / (wm.maxUniqueColors - 1);
+
+    if (loadPercent <= 0.33) return 1;  // green
+    if (loadPercent <= 0.66) return 2;  // orange
+    return 3;                            // red
+}
+
+// Select random cells to deactivate, capped by memory load difficulty
 function selectDeactivatedCells() {
-    const numToDeactivate = Math.floor(Math.random() * 4); // 0, 1, 2, or 3
+    const numToDeactivate = Math.floor(Math.random() * (getMaxHiddenCells() + 1)); // 0, 1, 2, or 3
     const allIndices = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
     let attempts = 0;
