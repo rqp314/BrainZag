@@ -39,21 +39,25 @@ const TOTAL_ROUNDS = 40;
 const DISPLAY_TIME = 500;   // 0.5s stimulus showing
 const INTERVAL_TIME = 2500; // 2.5s between items
 
-// Get adaptive stimulus interval, applying the DifficultyController speed multiplier
-// stimulusInterval: faster (in flow), slower (fatigued), 1.0 = normal
+// Get the speed multiplier from the DifficultyController
+// Only applies after round 6 and when memory load is orange or red (loadPercent > 0.33)
+function getSpeedMultiplier() {
+    if (rounds < 6 || !nbackEngine) return 1.0;
+    const wm = nbackEngine.getStats().workingMemory;
+    const range = wm.maxUniqueColors - wm.minUniqueColors;
+    const loadPercent = range > 0 ? (wm.currentLoad - wm.minUniqueColors) / range : 1;
+    if (loadPercent <= 0.33) return 1.0;
+    return nbackEngine.getStats().stimulusInterval || 1.0;
+}
+
+// Get adaptive stimulus interval: faster (in flow), slower (fatigued), 1.0 = normal
 function getAdaptiveInterval() {
-    const adaptive = (rounds >= 5 && nbackEngine)
-        ? (nbackEngine.getStats().stimulusInterval || 1.0)
-        : 1.0;
-    return INTERVAL_TIME * adaptive;
+    return INTERVAL_TIME * getSpeedMultiplier();
 }
 
 // Get adaptive display time for how long the stimulus stays visible
 function getAdaptiveDisplayTime() {
-    const adaptive = (rounds >= 5 && nbackEngine)
-        ? (nbackEngine.getStats().stimulusInterval || 1.0)
-        : 1.0;
-    return DISPLAY_TIME * adaptive;
+    return DISPLAY_TIME * getSpeedMultiplier();
 }
 
 // ------------------ ReactionTimer ------------------
@@ -794,12 +798,15 @@ function generateFibonacciMinutePositions() {
     // Initial interval between positions
     const baseInterval = Math.random() * 2 + 2; // random between 2 and 4 minutes
 
-    // Each subsequent position uses Fibonacci ratio for spacing
-    const pos2 = Math.min(pos1 + baseInterval, 18.0);
-    const pos3 = Math.min(pos2 + (baseInterval * PHI), 18.0);
-    const pos4 = Math.min(pos3 + (baseInterval * PHI * PHI), 18.0);
+    // Each subsequent position uses Fibonacci ratio for spacing (capped at 15 to leave room for the end phase marker)
+    const pos2 = Math.min(pos1 + baseInterval, 15.0);
+    const pos3 = Math.min(pos2 + (baseInterval * PHI), 15.0);
+    const pos4 = Math.min(pos3 + (baseInterval * PHI * PHI), 15.0);
 
-    return [pos1, pos2, pos3, pos4];
+    // Final marker lives in the end phase of the session, always at least 2 minutes after pos4
+    const pos5 = Math.min(Math.max(pos4 + 2, 16) + Math.random(), 17.5);
+
+    return [pos1, pos2, pos3, pos4, pos5];
 }
 
 // Load minute positions from localStorage or generate new ones if new day
@@ -1071,6 +1078,7 @@ const timerWrapper = document.getElementById("timerWrapper");
 let highestUnlockedLevel = 2; // default: levels 1 and 2 are unlocked
 const UNLOCK_THRESHOLD = 80; // 80% accuracy needed to unlock next level
 const UNLOCK_MIN_ROUNDS = 20; // minimum rounds required to qualify for unlock
+const MASTERY_REQUIRED_COUNT = 3; // qualifying games needed before a level is considered mastered
 
 // Load highest unlocked level from localStorage
 function loadUnlockedLevel() {
@@ -1122,24 +1130,36 @@ function checkAndUnlockNextLevel(nLevel, accuracy, roundsPlayed, colorLoad) {
 
 // ------------------ Level Mastery System ------------------
 
-// A level is mastered when: accuracy > UNLOCK_THRESHOLD, played TOTAL_ROUNDS, color load > UNLOCK_THRESHOLD
-let masteredLevels = new Set();
+// A level is mastered when the player completes MASTERY_REQUIRED_COUNT qualifying games:
+// accuracy >= UNLOCK_THRESHOLD, played TOTAL_ROUNDS, color load >= UNLOCK_THRESHOLD
+// masteredLevels maps nLevel (number) => qualifying game count (number)
+let masteredLevels = new Map();
 
 function loadMasteredLevels() {
     try {
         const saved = localStorage.getItem("masteredLevels");
         if (saved) {
-            masteredLevels = new Set(JSON.parse(saved));
+            const parsed = JSON.parse(saved);
+            // New format: plain object { "2": 3, "3": 1 }
+            // Old format (array of levels) is ignored and cleared so users restart progress
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                masteredLevels = new Map(
+                    Object.entries(parsed).map(([k, v]) => [parseInt(k, 10), v])
+                );
+            } else {
+                masteredLevels = new Map();
+                localStorage.removeItem("masteredLevels");
+            }
         }
     } catch (e) {
         console.error("Failed to load mastered levels or init phase:", e);
-        masteredLevels = new Set();
+        masteredLevels = new Map();
     }
 }
 
 function saveMasteredLevels() {
     try {
-        localStorage.setItem("masteredLevels", JSON.stringify([...masteredLevels]));
+        localStorage.setItem("masteredLevels", JSON.stringify(Object.fromEntries(masteredLevels)));
     } catch (e) {
         console.error("Failed to save mastered levels:", e);
     }
@@ -1147,10 +1167,16 @@ function saveMasteredLevels() {
 
 function checkAndAwardMastery(nLevel, accuracy, roundsPlayed, colorLoad) {
     if (accuracy >= UNLOCK_THRESHOLD && roundsPlayed >= TOTAL_ROUNDS && colorLoad * 100 >= UNLOCK_THRESHOLD) {
-        if (!masteredLevels.has(nLevel)) {
-            masteredLevels.add(nLevel);
-            saveMasteredLevels();
-            console.log(`Mastered level ${nLevel}! (${roundsPlayed} rounds at ${accuracy}%, load ${Math.round(colorLoad * 100)}%)`);
+        const currentCount = masteredLevels.get(nLevel) || 0;
+        if (currentCount >= MASTERY_REQUIRED_COUNT) {
+            return false; // already mastered
+        }
+        const newCount = currentCount + 1;
+        masteredLevels.set(nLevel, newCount);
+        saveMasteredLevels();
+        console.log(`Mastery progress level ${nLevel}: ${newCount}/${MASTERY_REQUIRED_COUNT} (${roundsPlayed} rounds at ${accuracy}%, load ${Math.round(colorLoad * 100)}%)`);
+        if (newCount >= MASTERY_REQUIRED_COUNT) {
+            console.log(`Mastered level ${nLevel}!`);
             return true;
         }
     }
@@ -1158,7 +1184,7 @@ function checkAndAwardMastery(nLevel, accuracy, roundsPlayed, colorLoad) {
 }
 
 function isLevelMastered(level) {
-    return masteredLevels.has(level);
+    return (masteredLevels.get(level) || 0) >= MASTERY_REQUIRED_COUNT;
 }
 
 // Animate button when unlocked
@@ -1367,7 +1393,8 @@ function hasThreeInLine(cells) {
 function getMaxHiddenCells() {
     if (!nbackEngine) return 1;
     const wm = nbackEngine.getStats().workingMemory;
-    const loadPercent = (wm.currentLoad - 1) / (wm.maxUniqueColors - 1);
+    const range = wm.maxUniqueColors - wm.minUniqueColors;
+    const loadPercent = range > 0 ? (wm.currentLoad - wm.minUniqueColors) / range : 1;
 
     if (loadPercent <= 0.33) return 1;  // green
     if (loadPercent <= 0.66) return 2;  // orange
@@ -2287,8 +2314,10 @@ function showResults() {
         avgLoad = roundTrials.reduce((sum, t) => sum + t.currentLoad, 0) / roundTrials.length;
         const roundedAvg = Math.round(avgLoad * 10) / 10; // round to 1 decimal
 
-        // Traffic light color based on load percentage
-        loadPercent = (avgLoad - 1) / (maxUniqueColors - 1);
+        // Traffic light color based on load within the achievable range
+        const minUniqueColors = Math.max(2, n - 1);
+        const loadRange = maxUniqueColors - minUniqueColors;
+        loadPercent = loadRange > 0 ? (avgLoad - minUniqueColors) / loadRange : 1;
         let loadColor;
         if (loadPercent <= 0.33) {
             loadColor = COLORS.find(c => c.name === "green").color; // easy
@@ -2299,7 +2328,11 @@ function showResults() {
         }
 
         const TOTAL_SEGMENTS = 4;
-        const filledSegments = Math.round(loadPercent * TOTAL_SEGMENTS);
+        const clampedLoadPercent = Math.max(0, Math.min(loadPercent, 1));
+        let filledSegments = Math.max(1, Math.round(clampedLoadPercent * TOTAL_SEGMENTS));
+        // Orange always shows at least 2 segments; red at 85%+ load fills all 4
+        if (loadPercent > 0.33) filledSegments = Math.max(2, filledSegments);
+        if (loadPercent > 0.66 && clampedLoadPercent >= 0.85) filledSegments = TOTAL_SEGMENTS;
         const emptySegments = TOTAL_SEGMENTS - filledSegments;
         const loadBar = '█'.repeat(filledSegments) + '░'.repeat(emptySegments);
         memoryLoadHtml = `
@@ -2377,14 +2410,19 @@ function showResults() {
 
     requestAnimationFrame(animateAccuracy);
 
-    // Start vibration on locked buttons with staggered delays
-    startLockedButtonVibration(loadPercent <= 0.33);
+    // Start vibration on locked buttons with staggered delays (only on hard/red memory load)
+    startLockedButtonVibration(loadPercent > 0.66);
 }
 
 // Start animation on a single target button to draw attention
+// Only runs when the finished game was on hard (red) memory load.
 // If playing at highest unlocked level: animate the first locked button
 // If playing a lower unlocked level: animate the highest unlocked button
-function startLockedButtonVibration(easyMemoryLoad) {
+function startLockedButtonVibration(hardMemoryLoad) {
+    // Only nudge when the session was actually hard
+    if (!hardMemoryLoad)
+        return
+
     // Sometimes no animation at all
     if (Math.random() < 0.3)
         return
@@ -2392,8 +2430,6 @@ function startLockedButtonVibration(easyMemoryLoad) {
     let targetBtn = null;
 
     if (n === highestUnlockedLevel) {
-        if (easyMemoryLoad)
-            return
         // Playing at highest unlocked: nudge the first locked one
         const firstLocked = document.querySelector(`.n-back-btn.locked`);
         if (firstLocked) targetBtn = firstLocked;
@@ -3228,14 +3264,14 @@ if (IS_LOCAL_HOST) {
     // Debug: Toggle mastery for current level
     const testMasteryBtn = document.getElementById("testMasteryBtn");
     testMasteryBtn.addEventListener("click", () => {
-        if (masteredLevels.has(n)) {
+        if (isLevelMastered(n)) {
             masteredLevels.delete(n);
         } else {
-            masteredLevels.add(n);
+            masteredLevels.set(n, MASTERY_REQUIRED_COUNT);
         }
         saveMasteredLevels();
         updateNBackButtons();
-        testMasteryBtn.textContent = `Toggle Mastery (${n}: ${masteredLevels.has(n) ? "ON" : "OFF"})`;
+        testMasteryBtn.textContent = `Toggle Mastery (${n}: ${isLevelMastered(n) ? "ON" : "OFF"})`;
     });
 
     // Debug: Confetti button

@@ -48,6 +48,7 @@ const motivation = [
     `You're voluntarily doing this. Wild`,
     `Your phone is proud. Probably...`,
     `Blink twice if you need help`,
+    `Are you tired ? But are you done ??`,
     `What stands in the way becomes the way`,
     `Fall seven times, stand up eight !`,
     `Difficulty is what wakes up the genius`,
@@ -75,6 +76,7 @@ const otherMessages = [
     `You could be scrolling social media. But here you are`,
     `This game knows your accuracy. It still likes you`,
     `10 to 20 min daily is the sweet spot for gains`,
+    `You don't have 20 min in your entire day ?`,
     `Train 4 to 5 days per week for best results`,
     `Short daily sessions beat long weekly ones`,
     `Your working memory peaks after 15 to 20 sessions`,
@@ -114,6 +116,7 @@ const otherMessages = [
     `Done is better than perfect`,
     `That's another deposit in the brain bank`,
     `N-Back is not hard, sitting down every day is`,
+    `Don't waste your time on some other nonsense`,
     `If you want to move a mountain, start with the small stones`,
 ];
 
@@ -402,7 +405,7 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
     if (day === 1) { // Monday
         timeMessages.push(
             `Monday training. Strong start to the week`,
-            `Most people dread Mondays. You use them`,
+            `Most people dislike Mondays. You use them`,
         );
     } else if (day === 5) { // Friday
         timeMessages.push(
@@ -414,7 +417,7 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
         }
     } else if (isWeekend) {
         timeMessages.push(
-            `Weekend warrior. Training when others rest`,
+            `Weekend - training when others rest`,
             `${dayNames[day]} session. No days off for your brain`,
             `Working out your brain on the weekend. Nice`,
         );
