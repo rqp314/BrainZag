@@ -57,6 +57,13 @@
             overflow-x: hidden; /* Prevent horizontal scrolling on mobile */
         }
 
+        /* Scale up 20% on desktop browsers (excludes phones and tablets) */
+        @media (min-width: 1025px) {
+            body {
+                zoom: 1.2;
+            }
+        }
+
         /* Remove iOS default form styling globally */
         button, input, select, textarea {
             -webkit-appearance: none;
