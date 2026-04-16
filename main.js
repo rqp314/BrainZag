@@ -791,6 +791,7 @@ function loadDailyTimer() {
 
 function generateFibonacciMinutePositions() {
     const PHI = 1.618;
+    const MAX_GAP = 4;
 
     // Start with first position in first 5 minutes
     const pos1 = Math.random() * 3 + 1; // random between 1 and 4 minutes
@@ -798,13 +799,14 @@ function generateFibonacciMinutePositions() {
     // Initial interval between positions
     const baseInterval = Math.random() * 2 + 2; // random between 2 and 4 minutes
 
-    // Each subsequent position uses Fibonacci ratio for spacing (capped at 15 to leave room for the end phase marker)
-    const pos2 = Math.min(pos1 + baseInterval, 15.0);
-    const pos3 = Math.min(pos2 + (baseInterval * PHI), 15.0);
-    const pos4 = Math.min(pos3 + (baseInterval * PHI * PHI), 15.0);
+    // Fibonacci ratio spacing, each gap capped at MAX_GAP
+    const pos2 = pos1 + Math.min(baseInterval, MAX_GAP);
+    const pos3 = pos2 + Math.min(baseInterval * PHI, MAX_GAP);
+    const pos4 = pos3 + Math.min(baseInterval * PHI * PHI, MAX_GAP);
 
-    // Final marker lives in the end phase of the session, always at least 2 minutes after pos4
-    const pos5 = Math.min(Math.max(pos4 + 2, 16) + Math.random(), 17.5);
+    // Final marker in end phase, but gap from pos4 also capped at MAX_GAP
+    const pos5raw = Math.min(Math.max(pos4 + 2, 16) + Math.random(), 17.5);
+    const pos5 = Math.min(pos5raw, pos4 + MAX_GAP);
 
     return [pos1, pos2, pos3, pos4, pos5];
 }
@@ -868,7 +870,8 @@ function createMinuteIndicators() {
     const minuteOffset = completedChunks * 20; // offset for completed 20-min chunks
 
     minutePositions.forEach(min => {
-        const seconds = min * 60;
+        const roundedMin = Math.round(min);
+        const seconds = roundedMin * 60;
         const position = (seconds / CHUNK_SECONDS) * 100; // percentage
 
         if (position <= 100) { // only show if within current 20-min chunk
@@ -886,7 +889,7 @@ function createMinuteIndicators() {
 
             // Add label inside the bar with offset
             const label = document.createElement("div");
-            const displayMinute = Math.round(min + minuteOffset);
+            const displayMinute = roundedMin + minuteOffset;
             label.textContent = `${displayMinute}m`;
             label.style.position = "absolute";
             label.style.top = "50%";
