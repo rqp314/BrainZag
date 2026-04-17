@@ -832,6 +832,23 @@ function saveMinutePositions() {
     localStorage.setItem("minutePositionsDate", today);
 }
 
+// Timer bar background: solid segments, teal 0-66%, orange 66-90%, red 90-100%.
+// Stops are computed relative to current fill so each segment keeps its own color.
+function getTimerBarColor(percent) {
+    const teal = "#57b9c6";
+    const orange = "#ef9a3d";
+    const red = "#d83c3c";
+
+    if (percent <= 50) return teal;
+    if (percent <= 80) {
+        const tealStop = (50 / percent) * 100;
+        return `linear-gradient(to right, ${teal} 0 ${tealStop}%, ${orange} ${tealStop}% 100%)`;
+    }
+    const tealStop = (50 / percent) * 100;
+    const orangeStop = (80 / percent) * 100;
+    return `linear-gradient(to right, ${teal} 0 ${tealStop}%, ${orange} ${tealStop}% ${orangeStop}%, ${red} ${orangeStop}% 100%)`;
+}
+
 // Start daily timer while game runs
 function startDailyTimer() {
     if (timerInterval) return;
@@ -1579,7 +1596,7 @@ updateStatsDisplay();
 const currentProgress = elapsedSeconds % CHUNK_SECONDS;
 const initialPercent = (currentProgress / CHUNK_SECONDS) * 100;
 timerFill.style.width = `${initialPercent}%`;
-timerFill.style.background = "#57b9c6";
+timerFill.style.background = getTimerBarColor(initialPercent);
 timerProgress.style.height = "24px"; // start expanded
 createMinuteIndicators(); // show indicators on load
 
@@ -2079,7 +2096,7 @@ function stopGame(autoEnded = false) {
     timerProgress.style.height = "24px";
     timerProgress.style.overflow = "visible";
     timerProgress.style.background = "#ddd";
-    timerFill.style.background = "#57b9c6";
+    timerFill.style.background = getTimerBarColor(0);
 
     // Animate progress bar from 0 to current value with FIXED duration
     const currentProgress = elapsedSeconds % CHUNK_SECONDS;
@@ -2119,6 +2136,7 @@ function stopGame(autoEnded = false) {
             const currentAnimatedPercent = targetPercent * easeProgress;
 
             updateIndicatorStyles(currentAnimatedPercent);
+            timerFill.style.background = getTimerBarColor(currentAnimatedPercent);
 
             if (progress < 1) {
                 requestAnimationFrame(animateIndicators);
@@ -2126,6 +2144,7 @@ function stopGame(autoEnded = false) {
                 // Animation complete
                 isAnimatingBar = false;
                 updateIndicatorStyles(targetPercent);
+                timerFill.style.background = getTimerBarColor(targetPercent);
                 // Show pulsating goal zone after animation
                 createGoalZone(targetPercent);
 
@@ -2838,7 +2857,7 @@ if (IS_LOCAL_HOST) {
         const currentProgress = elapsedSeconds % CHUNK_SECONDS;
         const initialPercent = (currentProgress / CHUNK_SECONDS) * 100;
         timerFill.style.width = `${initialPercent}%`;
-        timerFill.style.background = "#57b9c6";
+        timerFill.style.background = getTimerBarColor(initialPercent);
 
         // Recreate indicators
         minuteIndicators.forEach(m => m.remove());
@@ -3282,6 +3301,22 @@ if (IS_LOCAL_HOST) {
     if (confettiBtn) {
         confettiBtn.addEventListener("click", () => {
             launchConfetti();
+        });
+    }
+
+    // Debug: Bar color step button - visual only, bumps fill by 10% each click
+    const barColorStepBtn = document.getElementById("barColorStepBtn");
+    if (barColorStepBtn) {
+        let barTestPercent = 0;
+        barColorStepBtn.addEventListener("click", () => {
+            barTestPercent = (barTestPercent + 10) % 110; // 0,10,...,100,0
+            timerProgress.style.visibility = "";
+            timerFill.style.display = "block";
+            timerProgress.style.height = "24px";
+            timerFill.style.transition = "width 0.4s ease, background 0.4s ease";
+            timerFill.style.width = `${barTestPercent}%`;
+            timerFill.style.background = getTimerBarColor(barTestPercent);
+            barColorStepBtn.textContent = `Bar +10% (${barTestPercent}%)`;
         });
     }
 
