@@ -832,7 +832,14 @@ function saveMinutePositions() {
     localStorage.setItem("minutePositionsDate", today);
 }
 
-// Timer bar background: solid segments, teal 0-66%, orange 66-90%, red 90-100%.
+// Solid segment color at a given fill percent (used by goal zone, etc.)
+function getTimerBarSegmentColor(percent) {
+    if (percent < 50) return "#57b9c6";
+    if (percent < 80) return "#ef9a3d";
+    return "#d83c3c";
+}
+
+// Timer bar background: solid segments, teal 0-50%, orange 50-80%, red 80-100%.
 // Stops are computed relative to current fill so each segment keeps its own color.
 function getTimerBarColor(percent) {
     const teal = "#57b9c6";
@@ -1050,6 +1057,7 @@ function createGoalZone(fillPercent) {
     goalZone.id = "goalZone";
     goalZone.style.left = `${fillPercent}%`;
     goalZone.style.width = `${targetPercent - fillPercent}%`;
+    goalZone.style.background = getTimerBarSegmentColor(fillPercent);
 
     // Fade in the goal zone
     goalZone.style.opacity = "0";
