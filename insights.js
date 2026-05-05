@@ -34,7 +34,6 @@ const motivation = [
     `Every rep trains your brain`,
     `Struggling means you're growing`,
     `You stayed. That takes grit`,
-    `Challenge accepted and faced`,
     `This is where real growth happens`,
     `Hard rounds are the most valuable`,
     `Your brain is rewiring RIGHT NOW`,
@@ -43,16 +42,24 @@ const motivation = [
     `But you're still here`,
     `The colors won this round. Rematch?`,
     `If this were easy, everyone would do it`,
-    `Your brain just filed a complaint`,
     `The squares are laughing. Can you hear them?`,
     `You're voluntarily doing this. Wild`,
-    `Your phone is proud. Probably...`,
     `Blink twice if you need help`,
     `Are you tired ? But are you done ??`,
     `What stands in the way becomes the way`,
     `Fall seven times, stand up eight !`,
     `Difficulty is what wakes up the genius`,
     `A smooth sea never made a skilled sailor`,
+    `You need to endure to see progress`,
+    `One ROUND at a time, one DAY at a time`,
+    `There is no shortcut !!!`,
+    `Again, again and AGAIN -> keep going`,
+    `How committed are you ? - pretty boring no ?`,
+    `Start trusting this process ...`,
+    `Don't try to score high, just be.`,
+    `You lost your concentration? Thats okay!`,
+    `You are doing fantastic`,
+    `Don't strategize, don't count - just be.`,
 ];
 
 const midMessages = [
@@ -72,7 +79,6 @@ const otherMessages = [
     `This message was randomly selected`,
     `You're staring at colored squares on purpose`,
     `Your phone has 27 other apps. You chose this one`,
-    `Somewhere, a neuroscientist is proud of you`,
     `You could be scrolling social media. But here you are`,
     `This game knows your accuracy. It still likes you`,
     `10 to 20 min daily is the sweet spot for gains`,
@@ -118,6 +124,7 @@ const otherMessages = [
     `N-Back is not hard, sitting down every day is`,
     `Don't waste your time on some other nonsense`,
     `If you want to move a mountain, start with the small stones`,
+    `You need to show up every day -> it's boring`,
 ];
 
 // Count how many consecutive days (including today) the player has played
@@ -454,8 +461,9 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
         selected = !recentInsights.includes(generic_message[randomIndex]) ? generic_message[randomIndex] : !recentInsights.includes(backup_message) ? backup_message : ``;
     }
 
-    // Track recently shown messages to avoid repetition (rolling window of 15)
+    // Track recently shown messages to avoid repetition (rolling window)
     if (selected !== ``) recentInsights.push(selected);
-    if (recentInsights.length > 15) recentInsights.shift();
+    if (recentInsights.length > 41) recentInsights.shift();
+    if (selected !== ``) saveRecentInsights();
     return selected;
 }

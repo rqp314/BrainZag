@@ -414,6 +414,29 @@ function savePerformanceHistory() {
     }
 }
 
+// Load recently shown insights from localStorage (rolling window persistence)
+function loadRecentInsights() {
+    try {
+        const saved = localStorage.getItem("recentInsights");
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) recentInsights = parsed;
+        }
+    } catch (e) {
+        console.error("Failed to load recent insights:", e);
+        recentInsights = [];
+    }
+}
+
+// Save recently shown insights to localStorage
+function saveRecentInsights() {
+    try {
+        localStorage.setItem("recentInsights", JSON.stringify(recentInsights));
+    } catch (e) {
+        console.error("Failed to save recent insights:", e);
+    }
+}
+
 // Initialize pendingPerformance from Map (load today's existing data if any)
 function initPendingPerformance() {
     const today = formatDateLocal(new Date());
@@ -1590,6 +1613,7 @@ nbackEngine = null;
 // Load trial history and initialize performance tracking
 loadTrialHistory();
 loadPerformanceHistory();
+loadRecentInsights();
 initPendingPerformance();
 loadDailyTimer();
 
