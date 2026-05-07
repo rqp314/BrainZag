@@ -22,10 +22,12 @@ const motivation = [
     `This is the part where most people quit`,
     `You're in the arena. That's all that matters`,
     `Pain is just weakness leaving your brain`,
+    `This app will be boring. Keep going`,
     `Nobody said this was supposed to be easy`,
     `Embrace it. That's where growth lives`,
     `Mental toughness is a muscle. You just trained it`,
     `Staring at squares is better than doomscrolling`,
+    `Maybe take a short break, but finish 20min today`,
     `Consistency beats talent`,
     `Keep suffering!`,
     `Cognitive chaos detected`,
@@ -35,6 +37,7 @@ const motivation = [
     `Struggling means you're growing`,
     `You stayed. That takes grit`,
     `This is where real growth happens`,
+    `You will only progress in small increments - that's okay`,
     `Hard rounds are the most valuable`,
     `Your brain is rewiring RIGHT NOW`,
     `The score doesn't show the neural growth`,
@@ -47,12 +50,14 @@ const motivation = [
     `Blink twice if you need help`,
     `Are you tired ? But are you done ??`,
     `What stands in the way becomes the way`,
+    `Daily training will be extremely boring and difficult`,
     `Fall seven times, stand up eight !`,
     `Difficulty is what wakes up the genius`,
     `A smooth sea never made a skilled sailor`,
     `You need to endure to see progress`,
     `One ROUND at a time, one DAY at a time`,
     `There is no shortcut !!!`,
+    `Look it's not fun, but keep doing it`,
     `Again, again and AGAIN -> keep going`,
     `How committed are you ? - pretty boring no ?`,
     `Start trusting this process ...`,
@@ -60,6 +65,7 @@ const motivation = [
     `You lost your concentration? Thats okay!`,
     `You are doing fantastic`,
     `Don't strategize, don't count - just be.`,
+    `How long can you maintain a positive mindset ?`,
 ];
 
 const midMessages = [
@@ -125,6 +131,7 @@ const otherMessages = [
     `Don't waste your time on some other nonsense`,
     `If you want to move a mountain, start with the small stones`,
     `You need to show up every day -> it's boring`,
+    `Coming back to a low dopamine activity is needed`,
 ];
 
 // Count how many consecutive days (including today) the player has played
@@ -461,9 +468,25 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
         selected = !recentInsights.includes(generic_message[randomIndex]) ? generic_message[randomIndex] : !recentInsights.includes(backup_message) ? backup_message : ``;
     }
 
+    // Last resort: walk `motivation` then `otherMessages` from a random offset, take the first one not recently shown
+    if (selected === ``) {
+        const fallbackPools = [motivation, otherMessages];
+        for (const pool of fallbackPools) {
+            const start = Math.floor(Math.random() * pool.length);
+            for (let i = 0; i < pool.length; i++) {
+                const msg = pool[(start + i) % pool.length];
+                if (!recentInsights.includes(msg)) {
+                    selected = msg;
+                    break;
+                }
+            }
+            if (selected !== ``) break;
+        }
+    }
+
     // Track recently shown messages to avoid repetition (rolling window)
     if (selected !== ``) recentInsights.push(selected);
-    if (recentInsights.length > 41) recentInsights.shift();
+    if (recentInsights.length > 30) recentInsights.shift();
     if (selected !== ``) saveRecentInsights();
     return selected;
 }
