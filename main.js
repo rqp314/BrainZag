@@ -1138,6 +1138,11 @@ function loadUnlockedLevel() {
         if (saved) {
             highestUnlockedLevel = parseInt(saved);
         }
+        // Keep n-back level 5 and higher locked, even if a previous version unlocked them on disk
+        if (highestUnlockedLevel > 4) {
+            highestUnlockedLevel = 4;
+            saveUnlockedLevel();
+        }
     } catch (e) {
         console.error("Failed to load unlocked level:", e);
         highestUnlockedLevel = 2;
