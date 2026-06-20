@@ -66,6 +66,14 @@ const motivation = [
     `You are doing fantastic`,
     `Don't strategize, don't count - just be.`,
     `How long can you maintain a positive mindset ?`,
+    `Worrying is such a terrible use of your imagination`,
+    `This is not supposed to be rewarding, it's a grind`,
+    `You should stop now and watch some youtube...`,
+    `You should stop now and read news...`,
+    `Don't continue it's so boring...`,
+    `The monotony is needed, it filters out weak minds !`,
+    `Steady repetition quietly builds mastery`,
+    `How much do you train and how much do you consume ?`,
 ];
 
 const midMessages = [
@@ -113,12 +121,6 @@ const otherMessages = [
     `Nobody will do this for you. And nobody else is doing it`,
     `Your future self will thank your present self`,
     `Average is a choice. You're choosing different`,
-    `Nice focus`,
-    `Good awareness`,
-    `Staying sharp`,
-    `Brain engaged`,
-    `Your attention showed up today`,
-    `Locked in`,
     `You trained today. Most people didn't`,
     `Showing up is half the battle`,
     `Every session counts`,
