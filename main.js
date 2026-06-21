@@ -112,6 +112,7 @@ let recentInsights = []; // avoid repeating the same insight recently
 let roundLocked = false;
 let currentActiveCell = null; // track the cell currently showing stimulus
 let currentBgCell = null; // track corresponding background cell
+let currentCellIndex = null; // grid index (0-8) of the current stimulus cell, for the squish pivot
 let missedShakeTimerId = null; // pending headshake timeout for missed match
 let missedShakeActive = false; // true while headshake animation is playing
 let falsePositiveLocked = false; // true if current round was locked by a false positive
@@ -1604,6 +1605,7 @@ function nextStimulus() {
     const actualCellIndex = Array.from(overlayGrid.children).indexOf(randomCell);
     const bgCells = Array.from(document.querySelectorAll(".bg-cell"));
     currentBgCell = bgCells[actualCellIndex];
+    currentCellIndex = actualCellIndex;
 
     randomCell.style.background = color;
     randomCell.style.outline = "1px solid rgba(0, 0, 0, 0.15)";
@@ -1758,6 +1760,17 @@ function resetAllCells() {
     });
 }
 
+// Pivot point for the squish, based on the tile's spot in the 3x3 grid, so each
+// tile squishes from a fitting anchor (corners from their corner, center from center)
+function cellPivotOrigin(idx) {
+    if (idx == null || idx < 0) return "center";
+    const row = Math.floor(idx / 3);
+    const col = idx % 3;
+    const x = col === 0 ? "left" : col === 1 ? "center" : "right";
+    const y = row === 0 ? "top" : row === 1 ? "center" : "bottom";
+    return `${x} ${y}`;
+}
+
 function handleMatch() {
     if (!isRunning) return;
 
@@ -1777,9 +1790,21 @@ function handleMatch() {
     const squishClass = Math.random() < 0.5 ? "squish-right" : "squish-left";
     const animClass = isFalsePositive ? "head-shake" : squishClass;
 
+    // Squish pivots from the tile's grid position, but with a random chance to
+    // fall back to the classic "left top" / "right top" anchor. Headshake stays centered.
+    let pivot;
+    if (isFalsePositive) {
+        pivot = "center";
+    } else if (Math.random() < 0.4) {
+        pivot = Math.random() < 0.5 ? "left top" : "right top";
+    } else {
+        pivot = cellPivotOrigin(currentCellIndex);
+    }
+
     // Animate the background cell
     if (currentBgCell) {
         currentBgCell.classList.remove("squish-right", "squish-left", "head-shake");
+        currentBgCell.style.transformOrigin = pivot;
         void currentBgCell.offsetWidth;
         currentBgCell.classList.add(animClass);
 
@@ -1787,12 +1812,13 @@ function handleMatch() {
             if (currentBgCell) {
                 currentBgCell.classList.remove("squish-right", "squish-left", "head-shake");
             }
-        }, isFalsePositive ? 500 : 120);
+        }, isFalsePositive ? 500 : 300);
     }
 
     // Also animate the colored overlay cell if it exists and is visible
     if (currentActiveCell && coloredCellVisible) {
         currentActiveCell.classList.remove("squish-right", "squish-left", "head-shake");
+        currentActiveCell.style.transformOrigin = pivot;
         void currentActiveCell.offsetWidth;
         currentActiveCell.classList.add(animClass);
 
@@ -1800,7 +1826,7 @@ function handleMatch() {
             if (currentActiveCell) {
                 currentActiveCell.classList.remove("squish-right", "squish-left", "head-shake");
             }
-        }, isFalsePositive ? 500 : 120);
+        }, isFalsePositive ? 500 : 300);
     }
 
     // Don't count clicks before the first n is reached for accuracy
