@@ -787,6 +787,24 @@ function showBanner(showStats = false) {
         resultsBanner.classList.remove('banner-arch-in');
         void resultsBanner.offsetWidth; // force reflow so the animation restarts
         resultsBanner.classList.add('banner-arch-in');
+
+        // On iOS Safari, when a fill:both animation ends the element's own transition
+        // briefly re-animates back to the resting state (a visible jump). Hand off to
+        // the resting state with the transition suppressed so there is no jump.
+        if (resultsBanner._archDone) {
+            resultsBanner.removeEventListener('animationend', resultsBanner._archDone);
+        }
+        const archDone = (e) => {
+            if (e.target !== resultsBanner || e.animationName !== 'resultsArchIn') return;
+            resultsBanner.removeEventListener('animationend', archDone);
+            resultsBanner._archDone = null;
+            resultsBanner.style.transition = 'none';
+            resultsBanner.classList.remove('banner-arch-in');
+            void resultsBanner.offsetWidth; // commit before restoring the transition
+            resultsBanner.style.transition = '';
+        };
+        resultsBanner._archDone = archDone;
+        resultsBanner.addEventListener('animationend', archDone);
     } else {
         // Idle screen: show heatmap only, no stats (plain fade)
         if (bannerStats) bannerStats.innerHTML = '';
