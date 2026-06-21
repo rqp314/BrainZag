@@ -781,18 +781,25 @@ function showBanner(showStats = false) {
     if (showStats) {
         // End screen: show stats only, no heatmap
         if (bannerHeatmap) bannerHeatmap.innerHTML = '';
+        resultsBanner.classList.remove('banner-hidden');
+        // Replay the arch sweep-in entrance for the results popup
+        resultsBanner.classList.remove('banner-arch-in');
+        void resultsBanner.offsetWidth; // force reflow so the animation restarts
+        resultsBanner.classList.add('banner-arch-in');
     } else {
-        // Idle screen: show heatmap only, no stats
+        // Idle screen: show heatmap only, no stats (plain fade)
         if (bannerStats) bannerStats.innerHTML = '';
         renderActivityHeatmap();
+        resultsBanner.classList.remove('banner-arch-in');
+        resultsBanner.classList.remove('banner-hidden');
     }
-
-    resultsBanner.classList.remove('banner-hidden');
 }
 
 // Hide results banner (during gameplay)
 function hideBanner() {
     if (!resultsBanner) return;
+    // Drop the arch entrance so its forwards-fill doesn't block the hide transition
+    resultsBanner.classList.remove('banner-arch-in');
     resultsBanner.classList.add('banner-hidden');
 
     const tip = document.getElementById('heatmapTooltip');
