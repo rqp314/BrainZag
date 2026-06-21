@@ -1610,6 +1610,17 @@ function nextStimulus() {
     randomCell.style.background = color;
     randomCell.style.outline = "1px solid rgba(0, 0, 0, 0.15)";
     randomCell.classList.add("cell-colored");
+
+    // Place the tile at a slight random tilt so it doesn't look so rigidly centered.
+    // Driven by a CSS var so the tilt is preserved through the squish animation.
+    // Transition is suppressed so the tile is placed at its angle instantly.
+    const tilt = (Math.random() * 2 - 1) * 2; // -2 to 2 degrees
+    randomCell.style.transition = "none";
+    randomCell.style.setProperty("--tilt", `${tilt.toFixed(2)}deg`);
+    randomCell.style.transform = "rotate(var(--tilt))";
+    void randomCell.offsetWidth; // commit the transform immediately
+    randomCell.style.transition = "";
+
     currentActiveCell = randomCell;
     coloredCellVisible = true;
 
@@ -1635,6 +1646,8 @@ function nextStimulus() {
         }
         randomCell.style.background = "transparent";
         randomCell.style.outline = "none";
+        randomCell.style.transform = "";
+        randomCell.style.removeProperty("--tilt");
         randomCell.classList.remove("cell-colored");
         coloredCellVisible = false;
 
@@ -2038,15 +2051,19 @@ function stopGame(autoEnded = false) {
         doubleSpeedBtn.style.fontWeight = "normal";
     }
 
-    // Show the goal segment bar on the end screen, filling toward the next marker
-    timerProgress.style.visibility = "";
-    timerFill.style.display = "block";
-    renderTimerSegment(true);
+    // Show the goal segment bar on the end screen, filling toward the next marker.
+    // Delayed slightly so it lands just after the results popup arches in.
+    const BAR_REVEAL_DELAY = 100;
+    setTimeout(() => {
+        timerProgress.style.visibility = "";
+        timerFill.style.display = "block";
+        renderTimerSegment(true);
+    }, BAR_REVEAL_DELAY);
 
     // Start the start button animation after the bar has settled
     setTimeout(() => {
         startBtn.classList.add("animate");
-    }, 800 + 1618);
+    }, BAR_REVEAL_DELAY + 800 + 1618);
 
     // Update button visibility
     startBtn.style.display = "inline-block";
