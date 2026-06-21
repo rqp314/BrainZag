@@ -372,9 +372,7 @@ function loadCellHidingState() {
 let elapsedSeconds = 0;      // total seconds played today
 let timerInterval = null;
 const CHUNK_SECONDS = 1200; // 20 minutes per chunk
-let minuteIndicators = [];  // DOM elements for minute markers
 let minutePositions = []; // Fibonacci-based minute positions (in minutes)
-let isAnimatingBar = false; // track if progress bar is animating (during stopGame)
 let goalReachedBeforeGame = false; // was 20min already hit before this game round started
 
 // ================== Performance History (Map<dateStr, PerformanceData>) ==================
@@ -907,200 +905,91 @@ function formatTime(secs) {
     return `${String(mins).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-// Create minute indicators using Fibonacci-based positions (offset by completed chunks)
-function createMinuteIndicators() {
-    // Remove old indicators
-    minuteIndicators.forEach(m => m.remove());
-    minuteIndicators = [];
-
+// Work out the current goal segment: the span between the last passed minute
+// marker (or 0) and the next upcoming one. Markers are the Fibonacci positions
+// within each 20-min chunk, plus the chunk edges at 0 and 20.
+function getCurrentSegment() {
     const completedChunks = Math.floor(elapsedSeconds / CHUNK_SECONDS);
-    const minuteOffset = completedChunks * 20; // offset for completed 20-min chunks
+    const chunkBaseMin = completedChunks * 20; // minutes already banked in full chunks
+    const elapsedMin = elapsedSeconds / 60;
+    const withinChunkMin = elapsedMin - chunkBaseMin; // 0..20 inside the current chunk
 
-    minutePositions.forEach(min => {
-        const roundedMin = Math.round(min);
-        const seconds = roundedMin * 60;
-        const position = (seconds / CHUNK_SECONDS) * 100; // percentage
+    // Inner markers within this chunk, rounded, deduped and sorted, bounded by chunk edges
+    const inner = [...new Set(
+        minutePositions.map(p => Math.round(p)).filter(m => m > 0 && m < 20)
+    )].sort((a, b) => a - b);
+    const bounds = [0, ...inner, 20];
 
-        if (position <= 100) { // only show if within current 20-min chunk
-            const indicator = document.createElement("div");
-            indicator.style.position = "absolute";
-            indicator.style.left = `${position}%`;
-            indicator.style.top = "0";
-            indicator.style.width = "2px";
-            indicator.style.height = "100%";
-            indicator.style.background = "rgba(0, 0, 0, 0.6)";
-            indicator.style.transform = "translateX(-1px)"; // center the 2px line
-            indicator.style.opacity = "0";
-            indicator.style.transition = "opacity 0.3s ease, background 0.3s ease, width 0.3s ease";
-            indicator.dataset.position = position; // store position for later checks
-
-            // Add label inside the bar with offset
-            const label = document.createElement("div");
-            const displayMinute = roundedMin + minuteOffset;
-            label.textContent = `${displayMinute}m`;
-            label.style.position = "absolute";
-            label.style.top = "50%";
-            label.style.left = "4px"; // offset to the right of the line
-            label.style.transform = "translateY(-50%)";
-            label.style.fontSize = "9px";
-            label.style.color = "rgba(0, 0, 0, 0.8)";
-            label.style.whiteSpace = "nowrap";
-            label.style.fontWeight = "bold";
-            label.style.transition = "color 0.3s ease, font-weight 0.3s ease";
-
-            indicator.appendChild(label);
-            timerProgress.appendChild(indicator);
-            minuteIndicators.push(indicator);
-
-            // Fade in
-            setTimeout(() => {
-                indicator.style.opacity = "1";
-            }, 50);
+    let startInner = 0;
+    let endInner = 20;
+    for (let i = 0; i < bounds.length - 1; i++) {
+        if (withinChunkMin >= bounds[i] && withinChunkMin < bounds[i + 1]) {
+            startInner = bounds[i];
+            endInner = bounds[i + 1];
+            break;
         }
-    });
+    }
 
-    // Update styles based on current progress (only if not animating)
-    if (!isAnimatingBar) {
-        setTimeout(() => {
-            updateIndicatorStyles();
-        }, 100);
+    const span = endInner - startInner;
+    const fillPercent = span > 0 ? Math.min(((withinChunkMin - startInner) / span) * 100, 100) : 0;
+
+    return {
+        startMin: startInner + chunkBaseMin,
+        endMin: endInner + chunkBaseMin,
+        fillPercent,
+        absolutePercent: (withinChunkMin / 20) * 100 // where we sit in the 20-min session, for color
+    };
+}
+
+// Render the short "next goal" segment bar. Only the current segment is shown,
+// labeled with its start and end minute, filling toward the next marker.
+const SEG_LABEL_ANIMS = ["seg-anim-bounce", "seg-anim-drift", "seg-anim-drift-down"];
+
+function renderTimerSegment(animate = false) {
+    const seg = getCurrentSegment();
+
+    // Expand the bar to full height whenever it is shown
+    timerTrack.style.height = "24px";
+
+    segStartLabel.textContent = `${seg.startMin}m`;
+    segEndLabel.textContent = `${seg.endMin}m`;
+
+    // Color still reflects how deep into the 20-min session the player is
+    const color = getTimerBarSegmentColor(seg.absolutePercent);
+
+    // Highlight the upcoming goal number and give it a randomly chosen motion
+    segEndLabel.classList.remove(...SEG_LABEL_ANIMS);
+    void segEndLabel.offsetWidth; // restart the animation cleanly
+    segEndLabel.classList.add("seg-target");
+    segEndLabel.classList.add(SEG_LABEL_ANIMS[Math.floor(Math.random() * SEG_LABEL_ANIMS.length)]);
+
+    // Flash the remaining part of the segment (from the fill to the next marker)
+    const remaining = Math.max(0, 100 - seg.fillPercent);
+    if (remaining > 0.5) {
+        goalZone.style.display = "block";
+        goalZone.style.left = `${seg.fillPercent}%`;
+        goalZone.style.width = `${remaining}%`;
+        goalZone.style.background = color;
     } else {
-        // During animation, start with all indicators highlighted (bar at 0%)
-        setTimeout(() => {
-            updateIndicatorStyles(0);
-        }, 100);
+        goalZone.style.display = "none";
     }
-}
 
-// Update indicator styles based on current progress
-// animatedPercent: optional override for when bar is animating (use animated position instead of actual time)
-function updateIndicatorStyles(animatedPercent = null) {
-    let progressPercent;
-
-    if (animatedPercent !== null) {
-        // Use the animated bar position
-        progressPercent = animatedPercent;
+    if (animate) {
+        // Reset to empty so the player visibly fills toward the next marker
+        timerFill.style.transition = "none";
+        timerFill.style.width = "0%";
+        timerFill.style.background = color;
+        timerTrack.offsetHeight; // force reflow before animating
+        requestAnimationFrame(() => {
+            timerFill.style.transition = "width 0.8s cubic-bezier(0.32, 0, 0.07, 1), background 0.4s ease";
+            timerFill.style.width = `${seg.fillPercent}%`;
+        });
     } else {
-        // Use actual time progress
-        const currentProgress = elapsedSeconds % CHUNK_SECONDS;
-        progressPercent = (currentProgress / CHUNK_SECONDS) * 100;
-    }
-
-    // Find upcoming indicators (not yet passed) and sort by position
-    const upcomingIndicators = minuteIndicators
-        .map(indicator => ({
-            element: indicator,
-            position: parseFloat(indicator.dataset.position)
-        }))
-        .filter(item => progressPercent <= item.position)
-        .sort((a, b) => a.position - b.position);
-
-    // Get the next 2 upcoming indicators
-    const nextTwoPositions = upcomingIndicators.slice(0, 2).map(item => item.position);
-
-    // Get the very next indicator position for bounce animation
-    const nextIndicatorPosition = upcomingIndicators.length > 0 ? upcomingIndicators[0].position : null;
-
-    minuteIndicators.forEach(indicator => {
-        const indicatorPosition = parseFloat(indicator.dataset.position);
-        const label = indicator.querySelector("div");
-        const isNextIndicator = indicatorPosition === nextIndicatorPosition;
-
-        if (progressPercent > indicatorPosition) {
-            // Progress bar has passed this indicator - make it grey/thin
-            indicator.style.background = "rgba(0, 0, 0, 0.2)";
-            indicator.style.width = "1px";
-            indicator.style.transform = "translateX(-0.5px)";
-            if (label) {
-                label.classList.remove("minute-label-bounce", "minute-label-drift", "minute-label-drift-down");
-                label.style.color = "rgba(0, 0, 0, 0.4)";
-                label.style.fontWeight = "400";
-            }
-        } else if (nextTwoPositions.includes(indicatorPosition)) {
-            // This is one of the next 2 upcoming indicators - MOST bold
-            indicator.style.background = "rgba(0, 0, 0, 0.6)";
-            indicator.style.width = "2px";
-            indicator.style.transform = "translateX(-1px)";
-            if (label) {
-                // Apply animation only to the very next indicator's label
-                // Randomly pick between bounce and drift
-                if (isNextIndicator) {
-                    if (!label.classList.contains("minute-label-bounce") && !label.classList.contains("minute-label-drift") && !label.classList.contains("minute-label-drift-down")) {
-                        const r = Math.random();
-                        const anim = r < 0.333 ? "minute-label-drift" : r < 0.666 ? "minute-label-drift-down" : "minute-label-bounce";
-                        label.classList.add(anim);
-                    }
-                } else {
-                    label.classList.remove("minute-label-bounce", "minute-label-drift", "minute-label-drift-down");
-                }
-                label.style.color = "rgba(0, 0, 0, 0.8)";
-                label.style.fontWeight = "bold";
-            }
-        } else {
-            // Further ahead indicators - more faded style
-            indicator.style.background = "rgba(0, 0, 0, 0.25)";
-            indicator.style.width = "1px";
-            indicator.style.transform = "translateX(-0.5px)";
-            if (label) {
-                label.classList.remove("minute-label-bounce", "minute-label-drift", "minute-label-drift-down");
-                label.style.color = "rgba(0, 0, 0, 0.35)";
-                label.style.fontWeight = "400";
-            }
-        }
-    });
-}
-
-// Remove minute indicators
-function removeMinuteIndicators() {
-    minuteIndicators.forEach(m => {
-        m.style.opacity = "0";
-    });
-    setTimeout(() => {
-        minuteIndicators.forEach(m => m.remove());
-        minuteIndicators = [];
-    }, 300);
-}
-
-// Create pulsating goal zone between fill and next indicator (or end of bar)
-function createGoalZone(fillPercent) {
-    // Remove any existing goal zone
-    removeGoalZone();
-
-    // Find the next indicator position after the fill
-    const upcomingIndicators = minuteIndicators
-        .map(indicator => parseFloat(indicator.dataset.position))
-        .filter(pos => pos > fillPercent)
-        .sort((a, b) => a - b);
-
-    // Target is next indicator or end of bar (100%)
-    const targetPercent = upcomingIndicators.length > 0 ? upcomingIndicators[0] : 100;
-
-    // Create goal zone element
-    const goalZone = document.createElement("div");
-    goalZone.id = "goalZone";
-    goalZone.style.left = `${fillPercent}%`;
-    goalZone.style.width = `${targetPercent - fillPercent}%`;
-    goalZone.style.background = getTimerBarSegmentColor(fillPercent);
-
-    // Fade in the goal zone
-    goalZone.style.opacity = "0";
-    timerProgress.appendChild(goalZone);
-
-    // Trigger animation after reflow
-    requestAnimationFrame(() => {
-        goalZone.style.transition = "opacity 0.3s linear";
-        goalZone.style.opacity = "";  // Let CSS animation take over
-    });
-}
-
-// Remove goal zone
-function removeGoalZone() {
-    const existingZone = document.getElementById("goalZone");
-    if (existingZone) {
-        existingZone.remove();
+        timerFill.style.transition = "width 0.3s linear, background 0.3s ease";
+        timerFill.style.width = `${seg.fillPercent}%`;
+        timerFill.style.background = color;
     }
 }
-
 
 // ------------------ UI ------------------
 
@@ -1112,6 +1001,10 @@ const matchBtn = document.getElementById("matchBtn");
 const roundDisplay = document.getElementById("roundDisplay");
 const timerFill = document.getElementById("timerFill");
 const timerProgress = document.getElementById("timerProgress");
+const timerTrack = document.getElementById("timerTrack");
+const goalZone = document.getElementById("goalZone");
+const segStartLabel = document.getElementById("segStartLabel");
+const segEndLabel = document.getElementById("segEndLabel");
 const resultsBanner = document.getElementById("resultsBanner");
 const bannerStats = document.getElementById("bannerStats");
 const bannerHeatmap = document.getElementById("bannerHeatmap");
@@ -1624,13 +1517,8 @@ updateNBackButtons();
 // Initialize stats display
 updateStatsDisplay();
 
-// Initialize progress bar with current value on page load
-const currentProgress = elapsedSeconds % CHUNK_SECONDS;
-const initialPercent = (currentProgress / CHUNK_SECONDS) * 100;
-timerFill.style.width = `${initialPercent}%`;
-timerFill.style.background = getTimerBarColor(initialPercent);
-timerProgress.style.height = "24px"; // start expanded
-createMinuteIndicators(); // show indicators on load
+// Initialize the goal segment bar with the current value on page load
+renderTimerSegment(false);
 
 function getPlayableCells() {
     const overlayGrid = document.getElementById("overlay-grid");
@@ -2038,14 +1926,9 @@ function startGame() {
     hideBanner();
     if (bannerStats) bannerStats.innerHTML = "";
 
-    // Remove minute indicators and goal zone
-    removeMinuteIndicators();
-    removeGoalZone();
-
     // Hide daily timer bar visually during gameplay (keeps layout for stopBtn and roundProgressContainer)
     timerProgress.style.visibility = "hidden";
-    timerFill.style.display = "none";
-    timerProgress.style.height = "8px";
+    timerTrack.style.height = "8px"; // collapse so it re-expands on the end screen
 
 
     // Hide color preview if showing
@@ -2122,73 +2005,15 @@ function stopGame(autoEnded = false) {
         doubleSpeedBtn.style.fontWeight = "normal";
     }
 
-    // Show daily timer bar on end screen
+    // Show the goal segment bar on the end screen, filling toward the next marker
     timerProgress.style.visibility = "";
     timerFill.style.display = "block";
-    timerProgress.style.height = "24px";
-    timerProgress.style.overflow = "visible";
-    timerProgress.style.background = "#ddd";
-    timerFill.style.background = getTimerBarColor(0);
+    renderTimerSegment(true);
 
-    // Animate progress bar from 0 to current value with FIXED duration
-    const currentProgress = elapsedSeconds % CHUNK_SECONDS;
-    const targetPercent = (currentProgress / CHUNK_SECONDS) * 100;
-
-    // Reset to 0 first
-    timerFill.style.transition = "none";
-    timerFill.style.width = "0%";
-
-    // Force reflow
-    timerProgress.offsetHeight;
-
-    // Set animation flag
-    isAnimatingBar = true;
-
-    // Create minute indicators after expansion (they'll start with 0% styling)
+    // Start the start button animation after the bar has settled
     setTimeout(() => {
-        createMinuteIndicators();
-    }, 300);
-
-    // Animate to target with FIXED 800ms duration and ease-in-out (fast start, slow end)
-    // Also animate indicator styles in sync
-    const BAR_ANIMATION_DURATION = 800;
-    const animationStartTime = Date.now() + 50;
-
-    setTimeout(() => {
-        timerFill.style.transition = "width 0.8s cubic-bezier(0.32, 0, 0.07, 1)"; // fast start, slow finish
-        timerFill.style.width = `${targetPercent}%`;
-
-        // Animate indicator styles in sync with bar
-        const animateIndicators = () => {
-            const elapsed = Date.now() - animationStartTime;
-            const progress = Math.min(elapsed / BAR_ANIMATION_DURATION, 1);
-
-            // Use same easing as bar animation
-            const easeProgress = 1 - Math.pow(1 - progress, 3);
-            const currentAnimatedPercent = targetPercent * easeProgress;
-
-            updateIndicatorStyles(currentAnimatedPercent);
-            timerFill.style.background = getTimerBarColor(currentAnimatedPercent);
-
-            if (progress < 1) {
-                requestAnimationFrame(animateIndicators);
-            } else {
-                // Animation complete
-                isAnimatingBar = false;
-                updateIndicatorStyles(targetPercent);
-                timerFill.style.background = getTimerBarColor(targetPercent);
-                // Show pulsating goal zone after animation
-                createGoalZone(targetPercent);
-
-                // Start the start button animation after a slight delay
-                setTimeout(() => {
-                    startBtn.classList.add("animate");
-                }, 1618);
-            }
-        };
-
-        requestAnimationFrame(animateIndicators);
-    }, 50);
+        startBtn.classList.add("animate");
+    }, 800 + 1618);
 
     // Update button visibility
     startBtn.style.display = "inline-block";
@@ -2886,15 +2711,7 @@ if (IS_LOCAL_HOST) {
         savePerformanceToDisk();
 
         // Update UI
-        const currentProgress = elapsedSeconds % CHUNK_SECONDS;
-        const initialPercent = (currentProgress / CHUNK_SECONDS) * 100;
-        timerFill.style.width = `${initialPercent}%`;
-        timerFill.style.background = getTimerBarColor(initialPercent);
-
-        // Recreate indicators
-        minuteIndicators.forEach(m => m.remove());
-        minuteIndicators = [];
-        createMinuteIndicators();
+        renderTimerSegment(false);
 
         // Update button colors
         updateNBackButtons();
@@ -2906,12 +2723,8 @@ if (IS_LOCAL_HOST) {
         // Regenerate Fibonacci positions
         regenerateMinutePositions();
 
-        // Remove old indicators
-        minuteIndicators.forEach(m => m.remove());
-        minuteIndicators = [];
-
-        // Recreate indicators with new positions
-        createMinuteIndicators();
+        // Re-render the segment bar with the new positions
+        renderTimerSegment(false);
 
         // Show confirmation
         const positions = minutePositions.map(p => Math.round(p * 10) / 10).join(", ");
@@ -3336,19 +3149,21 @@ if (IS_LOCAL_HOST) {
         });
     }
 
-    // Debug: Bar color step button - visual only, bumps fill by 10% each click
+    // Debug: Bar step button - adds 2 minutes of real play time each click (no cap, segments repeat per chunk)
     const barColorStepBtn = document.getElementById("barColorStepBtn");
     if (barColorStepBtn) {
-        let barTestPercent = 0;
         barColorStepBtn.addEventListener("click", () => {
-            barTestPercent = (barTestPercent + 10) % 110; // 0,10,...,100,0
+            // Drive the actual underlying time value, not just the bar
+            elapsedSeconds += 120; // 2 minutes
+            pendingPerformance.playTime = elapsedSeconds;
+            savePerformanceToDisk();
+
             timerProgress.style.visibility = "";
             timerFill.style.display = "block";
-            timerProgress.style.height = "24px";
-            timerFill.style.transition = "width 0.4s ease, background 0.4s ease";
-            timerFill.style.width = `${barTestPercent}%`;
-            timerFill.style.background = getTimerBarColor(barTestPercent);
-            barColorStepBtn.textContent = `Bar +10% (${barTestPercent}%)`;
+            renderTimerSegment(true);
+            updateNBackButtons();
+
+            barColorStepBtn.textContent = `+2min (${Math.floor(elapsedSeconds / 60)}min)`;
         });
     }
 
