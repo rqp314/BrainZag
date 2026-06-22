@@ -376,6 +376,14 @@ const CHUNK_SECONDS = 1200; // 20 minutes per chunk
 let minutePositions = []; // Fibonacci-based minute positions (in minutes)
 let goalReachedBeforeGame = false; // was 20min already hit before this game round started
 
+// Dashed marks on the goal segment bar: each entry is the total elapsedSeconds
+// at which a previous round ended. They render as dashed vertical lines inside
+// the current segment, are cleared whenever the segment changes or the day
+// rolls over, and survive page reloads. Capped so the oldest falls off.
+const MAX_ROUND_MARKS = 20;
+let roundStopSeconds = [];
+let lastDashSegKey = null;
+
 // ================== Performance History (Map<dateStr, PerformanceData>) ==================
 // heatmap + progress: { n, hits, misses, falseAlarms, correctRejections, sumLoad, maxLoad, playTime }
 // ~100 bytes per day = ~365KB for 10 years
@@ -833,6 +841,7 @@ function loadDailyTimer() {
     elapsedSeconds = todayData ? todayData.playTime : 0;
 
     loadMinutePositions();
+    loadRoundMarks();
     renderActivityHeatmap();
 }
 
@@ -877,6 +886,31 @@ function saveMinutePositions() {
     const today = formatDateLocal(new Date());
     localStorage.setItem("minutePositions", JSON.stringify(minutePositions));
     localStorage.setItem("minutePositionsDate", today);
+}
+
+// Load the dashed round marks from localStorage, but only if they belong to
+// today. A new day starts with a clean bar.
+function loadRoundMarks() {
+    const savedDate = localStorage.getItem("roundMarksDate");
+    const savedMarks = localStorage.getItem("roundMarks");
+    const savedSegKey = localStorage.getItem("roundMarksSegKey");
+    const today = formatDateLocal(new Date());
+
+    if (savedDate === today && savedMarks) {
+        roundStopSeconds = JSON.parse(savedMarks);
+        lastDashSegKey = savedSegKey || null;
+    } else {
+        roundStopSeconds = [];
+        lastDashSegKey = null;
+    }
+}
+
+// Persist the dashed round marks so they survive a page reload
+function saveRoundMarks() {
+    const today = formatDateLocal(new Date());
+    localStorage.setItem("roundMarks", JSON.stringify(roundStopSeconds));
+    localStorage.setItem("roundMarksSegKey", lastDashSegKey || "");
+    localStorage.setItem("roundMarksDate", today);
 }
 
 // Solid segment color at a given fill percent (used by goal zone, etc.)
@@ -971,8 +1005,49 @@ function getCurrentSegment() {
 // labeled with its start and end minute, filling toward the next marker.
 const SEG_LABEL_ANIMS = ["seg-anim-bounce", "seg-anim-drift", "seg-anim-drift-down"];
 
+// Draw a dashed vertical line for every stored round-stop that falls inside the
+// given segment. Existing marks are cleared first so this is idempotent.
+function renderRoundMarks(seg) {
+    timerTrack.querySelectorAll(".timer-round-mark").forEach(el => el.remove());
+
+    const span = seg.endMin - seg.startMin;
+    if (span <= 0) return;
+
+    roundStopSeconds.forEach(stopSecs => {
+        if (stopSecs >= elapsedSeconds) return; // never mark the current achieved time
+        const stopMin = stopSecs / 60;
+        if (stopMin <= seg.startMin || stopMin >= seg.endMin) return; // outside this segment
+        const pct = ((stopMin - seg.startMin) / span) * 100;
+        const mark = document.createElement("div");
+        mark.className = "timer-round-mark";
+        mark.style.left = `${pct}%`;
+        timerTrack.appendChild(mark);
+    });
+}
+
+// Remember where the round that just ended landed, so its dashed line shows up
+// on the next round. The current stop deliberately does not draw a line yet.
+function recordRoundStop() {
+    roundStopSeconds.push(elapsedSeconds);
+    // Keep only the most recent marks so the oldest line falls off
+    if (roundStopSeconds.length > MAX_ROUND_MARKS) {
+        roundStopSeconds = roundStopSeconds.slice(-MAX_ROUND_MARKS);
+    }
+    saveRoundMarks();
+}
+
 function renderTimerSegment(animate = false) {
     const seg = getCurrentSegment();
+
+    // Whenever the visible segment changes, drop any previous round marks so
+    // each fresh segment starts clean
+    const segKey = `${seg.startMin}-${seg.endMin}`;
+    if (segKey !== lastDashSegKey) {
+        roundStopSeconds = [];
+        lastDashSegKey = segKey;
+        saveRoundMarks();
+    }
+    renderRoundMarks(seg);
 
     // Expand the bar to full height whenever it is shown
     timerTrack.style.height = "24px";
@@ -2076,6 +2151,11 @@ function stopGame(autoEnded = false) {
         timerProgress.style.visibility = "";
         timerFill.style.display = "block";
         renderTimerSegment(true);
+        // Mark this round's stop so its dashed line appears on the next round,
+        // but only when the player actually played at least 2 rounds
+        if (rounds >= 4) {
+            recordRoundStop();
+        }
     }, BAR_REVEAL_DELAY);
 
     // Start the start button animation after the bar has settled

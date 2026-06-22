@@ -895,6 +895,18 @@
             pointer-events: none;
         }
 
+        /* Dashed vertical line marking where a previous round ended within the
+           current goal segment. Cleared whenever a new segment begins. */
+        .timer-round-mark {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            width: 0;
+            border-left: 2px dashed rgba(0, 0, 0, 0.35);
+            pointer-events: none;
+            z-index: 2;
+        }
+
         /* Bounce animation for next minute marker label */
         @keyframes minuteLabelBounce {
             0%, 5% {
