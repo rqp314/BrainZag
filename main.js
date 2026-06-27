@@ -969,9 +969,15 @@ function formatTime(secs) {
 // marker (or 0) and the next upcoming one. Markers are the Fibonacci positions
 // within each 20-min chunk, plus the chunk edges at 0 and 20.
 function getCurrentSegment() {
-    const completedChunks = Math.floor(elapsedSeconds / CHUNK_SECONDS);
+    return getSegmentAt(elapsedSeconds);
+}
+
+// Same as getCurrentSegment but for an arbitrary point in time. Used to
+// reconstruct the segment the player was in when the round started.
+function getSegmentAt(seconds) {
+    const completedChunks = Math.floor(seconds / CHUNK_SECONDS);
     const chunkBaseMin = completedChunks * 20; // minutes already banked in full chunks
-    const elapsedMin = elapsedSeconds / 60;
+    const elapsedMin = seconds / 60;
     const withinChunkMin = elapsedMin - chunkBaseMin; // 0..20 inside the current chunk
 
     // Inner markers within this chunk, rounded, deduped and sorted, bounded by chunk edges
@@ -1005,15 +1011,23 @@ function getCurrentSegment() {
 // labeled with its start and end minute, filling toward the next marker.
 const SEG_LABEL_ANIMS = ["seg-anim-bounce", "seg-anim-drift", "seg-anim-drift-down"];
 
+// elapsedSeconds captured when the current round started, so the end screen can
+// reconstruct the segment the player was in before they played.
+let elapsedAtRoundStart = 0;
+
+// Bumped on every render and when a new round starts, so a running slide
+// transition can detect it has been superseded and bail out cleanly.
+let segTransitionId = 0;
+
 // Draw a dashed vertical line for every stored round-stop that falls inside the
 // given segment. Existing marks are cleared first so this is idempotent.
-function renderRoundMarks(seg) {
+function renderRoundMarks(seg, stops = roundStopSeconds) {
     timerTrack.querySelectorAll(".timer-round-mark").forEach(el => el.remove());
 
     const span = seg.endMin - seg.startMin;
     if (span <= 0) return;
 
-    roundStopSeconds.forEach(stopSecs => {
+    stops.forEach(stopSecs => {
         if (stopSecs >= elapsedSeconds) return; // never mark the current achieved time
         const stopMin = stopSecs / 60;
         if (stopMin <= seg.startMin || stopMin >= seg.endMin) return; // outside this segment
@@ -1036,8 +1050,133 @@ function recordRoundStop() {
     saveRoundMarks();
 }
 
+// Track length scales with how long the segment is, so a 1-minute goal reads
+// clearly shorter than a 5-minute one. Capped so it always fits the labels.
+function segmentTrackWidth(seg) {
+    const span = Math.max(1, seg.endMin - seg.startMin);
+    // 4-minute span matches the bar's previous fixed length (140px)
+    return Math.round(Math.min(40 + span * 25, 210));
+}
+
+// Paint one segment's labels, color, fill and goal-zone into the bar. When
+// fillTransition is false the fill jumps instantly (used to seed a starting state).
+function paintSegment(seg, fillPercent, fillTransition) {
+    timerTrack.style.height = "24px";
+    timerTrack.style.width = `${segmentTrackWidth(seg)}px`;
+    segStartLabel.textContent = `${seg.startMin}m`;
+    segEndLabel.textContent = `${seg.endMin}m`;
+
+    const color = getTimerBarSegmentColor(seg.absolutePercent);
+
+    const remaining = Math.max(0, 100 - fillPercent);
+    if (remaining > 0.5) {
+        goalZone.style.display = "block";
+        goalZone.style.left = `${fillPercent}%`;
+        goalZone.style.width = `${remaining}%`;
+        goalZone.style.background = color;
+    } else {
+        goalZone.style.display = "none";
+    }
+
+    timerFill.style.background = color;
+    if (fillTransition) {
+        timerFill.style.transition = "width 0.8s cubic-bezier(0.32, 0, 0.07, 1), background 0.4s ease";
+        timerFill.style.width = `${fillPercent}%`;
+    } else {
+        timerFill.style.transition = "none";
+        timerFill.style.width = `${fillPercent}%`;
+        timerTrack.offsetHeight; // commit the reset before any later animation
+    }
+}
+
+// End-screen choreography for when the round pushed past a segment boundary:
+// finish filling the old segment, slide it out left, slide the new one in from
+// the right, then fill it to where the player now stands.
+function animateSegmentTransition(startSeg, endSeg, prevStops) {
+    const myId = segTransitionId; // already bumped by renderTimerSegment
+    const isCurrent = () => myId === segTransitionId;
+
+    const SLIDE = 200; // px the bar travels off and on screen
+
+    // Phase A: show the previous segment exactly as it was left, then fill it full
+    timerSegment.style.transition = "none";
+    timerSegment.style.transform = "translateX(0)";
+    timerSegment.style.opacity = "1";
+    renderRoundMarks(startSeg, prevStops);
+    paintSegment(startSeg, startSeg.fillPercent, false);
+    requestAnimationFrame(() => {
+        if (!isCurrent()) return;
+        paintSegment(startSeg, 100, true);
+    });
+
+    // Phase B: slide the completed segment out to the left and fade it away
+    setTimeout(() => {
+        if (!isCurrent()) return;
+        timerSegment.style.transition = "transform 0.4s ease-in, opacity 0.4s ease-in";
+        timerSegment.style.transform = `translateX(-${SLIDE}px)`;
+        timerSegment.style.opacity = "0";
+    }, 950);
+
+    // Phase C: swap in the new segment off to the right, emptied. Round-mark
+    // bookkeeping was already done synchronously in renderTimerSegment.
+    setTimeout(() => {
+        if (!isCurrent()) return;
+        renderRoundMarks(endSeg);
+        paintSegment(endSeg, 0, false);
+        timerSegment.style.transition = "none";
+        timerSegment.style.transform = `translateX(${SLIDE}px)`;
+        timerSegment.style.opacity = "0";
+        timerTrack.offsetHeight; // commit before sliding in
+
+        // Phase D: slide the new segment in to the center
+        requestAnimationFrame(() => {
+            if (!isCurrent()) return;
+            timerSegment.style.transition = "transform 0.45s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.3s ease-out";
+            timerSegment.style.transform = "translateX(0)";
+            timerSegment.style.opacity = "1";
+        });
+    }, 1400);
+
+    // Phase E: highlight the new goal label and fill toward the player's position
+    setTimeout(() => {
+        if (!isCurrent()) return;
+        segEndLabel.classList.remove(...SEG_LABEL_ANIMS);
+        void segEndLabel.offsetWidth;
+        segEndLabel.classList.add("seg-target");
+        segEndLabel.classList.add(SEG_LABEL_ANIMS[Math.floor(Math.random() * SEG_LABEL_ANIMS.length)]);
+        paintSegment(endSeg, endSeg.fillPercent, true);
+    }, 1900);
+}
+
 function renderTimerSegment(animate = false) {
     const seg = getCurrentSegment();
+
+    // Any render supersedes a running slide transition
+    segTransitionId++;
+    // Reset the segment to its resting position in case a slide was interrupted
+    timerSegment.style.transition = "none";
+    timerSegment.style.transform = "translateX(0)";
+    timerSegment.style.opacity = "1";
+
+    // On the end screen, if the round crossed into a new segment, play the
+    // finish-and-slide choreography instead of snapping straight to the new one
+    if (animate) {
+        const startSeg = getSegmentAt(elapsedAtRoundStart);
+        const crossed = startSeg.startMin !== seg.startMin || startSeg.endMin !== seg.endMin;
+        if (crossed) {
+            // Keep the old segment's marks for the replay, then clear them so the
+            // new segment starts fresh and any stop recorded right after survives
+            const prevStops = roundStopSeconds.slice();
+            const segKey = `${seg.startMin}-${seg.endMin}`;
+            if (segKey !== lastDashSegKey) {
+                roundStopSeconds = [];
+                lastDashSegKey = segKey;
+                saveRoundMarks();
+            }
+            animateSegmentTransition(startSeg, seg, prevStops);
+            return;
+        }
+    }
 
     // Whenever the visible segment changes, drop any previous round marks so
     // each fresh segment starts clean
@@ -1049,8 +1188,9 @@ function renderTimerSegment(animate = false) {
     }
     renderRoundMarks(seg);
 
-    // Expand the bar to full height whenever it is shown
+    // Expand the bar to full height and size its length to the segment span
     timerTrack.style.height = "24px";
+    timerTrack.style.width = `${segmentTrackWidth(seg)}px`;
 
     segStartLabel.textContent = `${seg.startMin}m`;
     segEndLabel.textContent = `${seg.endMin}m`;
@@ -1103,6 +1243,7 @@ const roundDisplay = document.getElementById("roundDisplay");
 const timerFill = document.getElementById("timerFill");
 const timerProgress = document.getElementById("timerProgress");
 const timerTrack = document.getElementById("timerTrack");
+const timerSegment = document.getElementById("timerSegment");
 const goalZone = document.getElementById("goalZone");
 const segStartLabel = document.getElementById("segStartLabel");
 const segEndLabel = document.getElementById("segEndLabel");
@@ -1992,6 +2133,12 @@ function startGame() {
     if (isRunning) return;
 
     abortConfetti();
+
+    // Remember where the daily timer stood so the end screen can replay the
+    // previous segment before sliding to the one the player reached
+    elapsedAtRoundStart = elapsedSeconds;
+    // Cancel any end-screen segment slide still in flight
+    segTransitionId++;
 
     // Initialize game state
     index = 0;
@@ -3393,6 +3540,7 @@ if (IS_LOCAL_HOST) {
     if (barColorStepBtn) {
         barColorStepBtn.addEventListener("click", () => {
             // Drive the actual underlying time value, not just the bar
+            elapsedAtRoundStart = elapsedSeconds; // pretend this was a played round
             elapsedSeconds += 120; // 2 minutes
             pendingPerformance.playTime = elapsedSeconds;
             savePerformanceToDisk();
