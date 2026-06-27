@@ -1991,6 +1991,8 @@ function handleMatch() {
 function startGame() {
     if (isRunning) return;
 
+    abortConfetti();
+
     // Initialize game state
     index = 0;
     rounds = 0;
@@ -2247,10 +2249,24 @@ function updateRoundProgressCircle() {
 
 // ------------------ Confetti ------------------
 
+// Bumped on every launch and on abort so running animation loops can bail out
+let confettiRunId = 0;
+
+// Remove all confetti and stop every running animation loop
+function abortConfetti() {
+    confettiRunId++;
+    const container = document.getElementById("confettiContainer");
+    if (container) container.innerHTML = "";
+}
+
 function launchConfetti() {
     const container = document.getElementById("confettiContainer");
     const gridEl = document.getElementById("grid");
     if (!container || !gridEl) return;
+
+    const runId = ++confettiRunId;
+    // Clear any blocks left over from a previous burst
+    container.innerHTML = "";
 
     const screenW = window.innerWidth;
     const gridBottom = gridEl.getBoundingClientRect().bottom;
@@ -2258,6 +2274,20 @@ function launchConfetti() {
 
     const CONFETTI_COUNT = 120;
     const confettiColors = COLORS.map(c => c.color);
+
+    // Track how many blocks are still alive so the very last one can pop
+    let active = CONFETTI_COUNT;
+
+    // Per frame physics, scaled by dt so it looks the same at any framerate
+    const GRAVITY = screenW <= 480 ? 0.14 : 0.16;
+    // Bounce energy retained off the side walls and the floor
+    const WALL_BOUNCE = 0.92;
+    const FLOOR_BOUNCE = 0.85;
+    const maxX = screenW - blockSize;
+    const fallStop = gridBottom + blockSize;
+
+    const now0 = performance.now();
+    const particles = [];
 
     for (let i = 0; i < CONFETTI_COUNT; i++) {
         const block = document.createElement("div");
@@ -2274,48 +2304,109 @@ function launchConfetti() {
         // Start above the screen
         block.style.top = -blockSize + "px";
 
-        // Fall from top of screen to grid bottom
-        const fallDistance = gridBottom + blockSize;
-        const fallDuration = 1000 + Math.random() * 1000;
-        const startDelay = Math.random() * 800;
+        // Per block intensity: some blocks are calm, some pop hard
+        const intensity = 0.4 + Math.random() * Math.random() * 2.4;
 
+        // Explosive launch: fast outward kick plus a hard downward burst
+        const vx = (Math.random() - 0.5) * 9 * intensity;
+        const vy = (1 + Math.random() * 5) * (0.6 + intensity * 0.5);
+        const startDelay = Math.random() * 500;
 
-        // Slight random horizontal drift
-        const drift = (Math.random() - 0.5) * 60;
+        // Each block falls a touch differently
+        const gravity = GRAVITY * (0.7 + Math.random() * 0.8);
+
         // Random rotation, some spin fast
         const spinFast = Math.random() < 0.45;
-        const rotation = (Math.random() - 0.5) * (spinFast ? 720 : 220);
+        const vrot = (Math.random() - 0.5) * (spinFast ? 12 : 6) * (0.5 + intensity);
 
         container.appendChild(block);
 
-        // Animate with JS for smooth cross browser support
-        const startTime = performance.now() + startDelay;
-
-        const animate = (now) => {
-            const elapsed = now - startTime;
-            if (elapsed < 0) {
-                requestAnimationFrame(animate);
-                return;
-            }
-
-            const progress = Math.min(elapsed / fallDuration, 1);
-            // Ease in slightly for gravity feel
-            const eased = progress * progress * 0.3 + progress * 0.7;
-            const y = -blockSize + eased * (fallDistance + blockSize);
-            const x = startX + drift * progress;
-            const rot = rotation * progress;
-
-            block.style.transform = `translate(${x - startX}px, ${y + blockSize}px) rotate(${rot}deg)`;
-
-            if (progress < 1) {
-                requestAnimationFrame(animate);
-            } else {
-                block.remove();
-            }
-        };
-
-        requestAnimationFrame(animate);
+        particles.push({
+            block, startX, gravity,
+            vx, vy, vrot,
+            x: 0, y: 0, rot: 0,
+            floorBounces: 0,
+            start: now0 + startDelay,
+            last: now0 + startDelay,
+        });
     }
+
+    // One shared animation loop drives every block, so abort is instant and
+    // we avoid hundreds of independent rAF callbacks on weaker devices
+    const frame = (now) => {
+        // A new launch or an abort invalidates this loop
+        if (runId !== confettiRunId) return;
+
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            if (now < p.start) continue;
+
+            const dt = Math.min((now - p.last) / 16.6667, 2.5);
+            p.last = now;
+
+            p.vy += p.gravity * dt;
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.rot += p.vrot * dt;
+
+            // Bounce off the left and right walls (x is an offset from startX)
+            const absX = p.startX + p.x;
+            if (absX < 0) {
+                p.x = -p.startX;
+                p.vx = -p.vx * WALL_BOUNCE;
+            } else if (absX > maxX) {
+                p.x = maxX - p.startX;
+                p.vx = -p.vx * WALL_BOUNCE;
+            }
+
+            // First floor contact bounces; second time it falls through and is gone,
+            // except the very last block, which jumps once more and then pops
+            if (p.y >= fallStop) {
+                if (p.floorBounces < 1) {
+                    p.floorBounces++;
+                    p.y = fallStop;
+                    p.vy = -p.vy * FLOOR_BOUNCE;
+                } else if (p.floorBounces === 1) {
+                    p.y = fallStop;
+                    active--;
+                    if (active === 0) {
+                        // Last block standing: small second hop, pop on landing
+                        p.floorBounces = 2;
+                        p.vy = -4;
+                    } else {
+                        p.block.style.transform = `translate(${p.x}px, ${p.y}px) rotate(${p.rot}deg)`;
+                        p.block.remove();
+                        particles.splice(i, 1);
+                        continue;
+                    }
+                } else {
+                    // Final landing: grow big and pop
+                    p.y = fallStop;
+                    const block = p.block;
+                    block.style.transformOrigin = "center center";
+                    block.style.transition =
+                        "transform 320ms cubic-bezier(.18,1.4,.4,1), opacity 320ms ease-out";
+                    block.style.transform = `translate(${p.x}px, ${p.y}px) rotate(${p.rot}deg) scale(1)`;
+                    requestAnimationFrame(() => {
+                        if (runId !== confettiRunId) return;
+                        block.style.transform = `translate(${p.x}px, ${p.y}px) rotate(${p.rot}deg) scale(4)`;
+                        block.style.opacity = "0";
+                    });
+                    setTimeout(() => block.remove(), 360);
+                    particles.splice(i, 1);
+                    continue;
+                }
+            }
+
+            p.block.style.transform = `translate(${p.x}px, ${p.y}px) rotate(${p.rot}deg)`;
+        }
+
+        if (particles.length > 0) {
+            requestAnimationFrame(frame);
+        }
+    };
+
+    requestAnimationFrame(frame);
 }
 
 // ------------------ Results ------------------
