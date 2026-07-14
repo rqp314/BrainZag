@@ -71,9 +71,15 @@ const motivation = [
     `You should stop now and watch some youtube...`,
     `You should stop now and read news...`,
     `Don't continue it's so boring...`,
-    `The monotony is needed, it filters out weak minds !`,
+    `This monotony is needed, it filters out weak minds !`,
     `Steady repetition quietly builds mastery`,
     `How much do you train and how much do you consume ?`,
+    `Your mind says no - you just say: this is what we do now`,
+    `No motivation, no discipline - where is it? just do`,
+    `You will have good rounds and you will have bad rounds`,
+    `Stop trying to be correct all the time`,
+    `Trying is failing, just be`,
+    `You don't have to smart, just be consistent`,
 ];
 
 const midMessages = [
