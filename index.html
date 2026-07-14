@@ -248,6 +248,29 @@
             transition: width 0.3s linear, background 0.3s ease;
         }
 
+        /* Stack of completed goal segments, kept to the left of the current bar.
+           Newest sits on top; the oldest falls off once the cap is exceeded. */
+        #segStack {
+            position: absolute;
+            left: 10px; /* tucked in a bit from the grid's left edge */
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start; /* lines stick out to the right */
+            gap: 3px;
+            width: 64px;
+            pointer-events: none;
+            z-index: 3;
+        }
+
+        .stack-line {
+            height: 3px;
+            border-radius: 2px;
+            opacity: 0.85;
+            will-change: transform;
+        }
+
         .seg-label {
             font-size: 12px;
             font-weight: 700;
@@ -1316,6 +1339,7 @@
 
     <div id="timerWrapper" style="position: relative; width: 360px; margin: 5px auto;">
         <div id="timerProgress" style="position:relative; width:100%; cursor: pointer;">
+            <div id="segStack"></div>
             <div id="timerSegment">
                 <span id="segStartLabel" class="seg-label">0m</span>
                 <div id="timerTrack"><div id="timerFill"></div><div id="goalZone"></div></div>

@@ -1089,12 +1089,136 @@ function paintSegment(seg, fillPercent, fillTransition) {
     }
 }
 
+// ------------------ Completed-segment stack ------------------
+// Every finished goal segment leaves a thin line stacked to the left of the
+// current bar. Newest sits on top; once we pass MAX_STACK the oldest falls off.
+const MAX_STACK = 4;
+
+// Thinner sibling of segmentTrackWidth so a longer goal reads as a longer line.
+function stackLineWidth(seg) {
+    const span = Math.max(1, seg.endMin - seg.startMin);
+    return Math.round(Math.min(24 + span * 6, 64));
+}
+
+// All goal segments fully completed by `seconds`, oldest first, capped to the
+// most recent MAX_STACK so the stack mirrors what is on screen.
+function getCompletedSegments(seconds) {
+    const elapsedMin = seconds / 60;
+    const inner = [...new Set(
+        minutePositions.map(p => Math.round(p)).filter(m => m > 0 && m < 20)
+    )].sort((a, b) => a - b);
+    const bounds = [0, ...inner, 20];
+    const out = [];
+    const maxChunk = Math.floor(elapsedMin / 20);
+    for (let c = 0; c <= maxChunk; c++) {
+        const base = c * 20;
+        for (let i = 0; i < bounds.length - 1; i++) {
+            const endMin = base + bounds[i + 1];
+            if (endMin <= elapsedMin + 1e-9) {
+                out.push({
+                    startMin: base + bounds[i],
+                    endMin,
+                    absolutePercent: (bounds[i + 1] / 20) * 100
+                });
+            }
+        }
+    }
+    return out.slice(-MAX_STACK);
+}
+
+function makeStackLine(seg) {
+    const line = document.createElement("div");
+    line.className = "stack-line";
+    line.dataset.key = `${seg.startMin}-${seg.endMin}`;
+    line.style.width = `${stackLineWidth(seg)}px`;
+    line.style.background = getTimerBarSegmentColor(seg.absolutePercent);
+    return line;
+}
+
+// Signature of the currently stacked lines, top to bottom, so the static
+// rebuild can skip work when the stack already matches.
+function stackSignature() {
+    return [...segStack.querySelectorAll(".stack-line:not(.falling)")]
+        .map(el => el.dataset.key).join(",");
+}
+
+// Drop the oldest (bottom) line with a short fall-off animation. The line is
+// pulled out of flow first so the survivors settle into place immediately.
+function dropOldestStackLine() {
+    const live = segStack.querySelectorAll(".stack-line:not(.falling)");
+    const victim = live[live.length - 1];
+    if (!victim) return;
+    const pr = segStack.getBoundingClientRect();
+    const r = victim.getBoundingClientRect();
+    victim.classList.add("falling");
+    victim.style.position = "absolute";
+    victim.style.left = `${r.left - pr.left}px`;
+    victim.style.top = `${r.top - pr.top}px`;
+    victim.style.margin = "0";
+    requestAnimationFrame(() => {
+        victim.style.transition = "transform 0.5s ease-in, opacity 0.5s ease-in";
+        victim.style.transform = "translateY(20px)";
+        victim.style.opacity = "0";
+    });
+    setTimeout(() => victim.remove(), 520);
+}
+
+// Fly a freshly inserted line from the center bar into its stack slot, shrinking
+// as it lands (FLIP: measure the resting slot, start it looking like the bar).
+function flyStackLine(line) {
+    const from = timerTrack.getBoundingClientRect();
+    const to = line.getBoundingClientRect();
+    if (!from.width || !to.width) return;
+    const dx = from.left - to.left;
+    const dy = from.top - to.top;
+    const sx = from.width / to.width;
+    const sy = from.height / to.height;
+    line.style.transformOrigin = "top left";
+    line.style.transition = "none";
+    line.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+    line.style.borderRadius = "4px";
+    line.offsetHeight; // commit the start state before animating
+    requestAnimationFrame(() => {
+        line.style.transition = "transform 0.6s cubic-bezier(0.34, 1.3, 0.64, 1), border-radius 0.6s ease";
+        line.style.transform = "none";
+        line.style.borderRadius = "2px";
+    });
+}
+
+// Add one completed segment on top of the stack, making room first so it never
+// exceeds MAX_STACK. `fly` animates it in from the center bar.
+function pushStackLine(seg, fly) {
+    while (segStack.querySelectorAll(".stack-line:not(.falling)").length >= MAX_STACK) {
+        dropOldestStackLine(); // marks the victim .falling, so the count drops now
+    }
+    const line = makeStackLine(seg);
+    segStack.insertBefore(line, segStack.firstChild); // newest on top
+    if (fly) flyStackLine(line);
+}
+
+// Rebuild the stack straight from elapsed time, no animation. Used on load and
+// whenever a render leaves the stack out of sync (e.g. day rollover, reload).
+function rebuildStackStatic() {
+    const completed = getCompletedSegments(elapsedSeconds); // oldest -> newest
+    const desired = completed.slice().reverse() // newest -> oldest, DOM order
+        .map(s => `${s.startMin}-${s.endMin}`).join(",");
+    if (desired === stackSignature()) return;
+    segStack.innerHTML = "";
+    completed.forEach(seg => segStack.insertBefore(makeStackLine(seg), segStack.firstChild));
+}
+
 // End-screen choreography for when the round pushed past a segment boundary:
 // finish filling the old segment, slide it out left, slide the new one in from
 // the right, then fill it to where the player now stands.
 function animateSegmentTransition(startSeg, endSeg, prevStops) {
     const myId = segTransitionId; // already bumped by renderTimerSegment
     const isCurrent = () => myId === segTransitionId;
+
+    // Segments completed during this round, not yet reflected in the stack
+    const stacked = new Set([...segStack.querySelectorAll(".stack-line:not(.falling)")]
+        .map(el => el.dataset.key));
+    const newlyCompleted = getCompletedSegments(elapsedSeconds)
+        .filter(s => !stacked.has(`${s.startMin}-${s.endMin}`));
 
     const SLIDE = 200; // px the bar travels off and on screen
 
@@ -1109,11 +1233,20 @@ function animateSegmentTransition(startSeg, endSeg, prevStops) {
         paintSegment(startSeg, 100, true);
     });
 
-    // Phase B: slide the completed segment out to the left and fade it away
+    // Phase B: the completed segment shrinks off into the stack on the left,
+    // then the bar fades out so the new segment can take its place.
     setTimeout(() => {
         if (!isCurrent()) return;
-        timerSegment.style.transition = "transform 0.4s ease-in, opacity 0.4s ease-in";
-        timerSegment.style.transform = `translateX(-${SLIDE}px)`;
+        // Fly the just-completed segment(s) into the stack from the full bar.
+        // Capture the first fly before the bar starts moving so it reads as the
+        // bar itself landing in the stack; extras (rare) stagger in after.
+        newlyCompleted.forEach((seg, i) => {
+            setTimeout(() => {
+                if (!isCurrent()) return;
+                pushStackLine(seg, true);
+            }, i * 160);
+        });
+        timerSegment.style.transition = "transform 0.4s ease-in, opacity 0.25s ease-in";
         timerSegment.style.opacity = "0";
     }, 950);
 
@@ -1188,6 +1321,10 @@ function renderTimerSegment(animate = false) {
     }
     renderRoundMarks(seg);
 
+    // Keep the completed-segment stack in sync (load, reload, day rollover, or
+    // an end screen that did not cross a boundary). Crossings animate instead.
+    rebuildStackStatic();
+
     // Expand the bar to full height and size its length to the segment span
     timerTrack.style.height = "24px";
     timerTrack.style.width = `${segmentTrackWidth(seg)}px`;
@@ -1244,6 +1381,7 @@ const timerFill = document.getElementById("timerFill");
 const timerProgress = document.getElementById("timerProgress");
 const timerTrack = document.getElementById("timerTrack");
 const timerSegment = document.getElementById("timerSegment");
+const segStack = document.getElementById("segStack");
 const goalZone = document.getElementById("goalZone");
 const segStartLabel = document.getElementById("segStartLabel");
 const segEndLabel = document.getElementById("segEndLabel");
@@ -2295,7 +2433,7 @@ function stopGame(autoEnded = false) {
 
     // Show the goal segment bar on the end screen, filling toward the next marker.
     // Delayed slightly so it lands just after the results popup arches in.
-    const BAR_REVEAL_DELAY = 100;
+    const BAR_REVEAL_DELAY = 400;
     setTimeout(() => {
         timerProgress.style.visibility = "";
         timerFill.style.display = "block";
