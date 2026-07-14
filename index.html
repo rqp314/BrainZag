@@ -271,6 +271,17 @@
             will-change: transform;
         }
 
+        /* Slight nudge for already-stacked lines whenever the bar re-renders */
+        @keyframes stackNudge {
+            0% { transform: translateX(0); }
+            40% { transform: translateX(3.14px); }
+            100% { transform: translateX(0); }
+        }
+
+        .stack-line.stack-nudge {
+            animation: stackNudge 0.45s ease-out;
+        }
+
         .seg-label {
             font-size: 12px;
             font-weight: 700;

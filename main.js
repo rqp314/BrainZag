@@ -1196,6 +1196,17 @@ function pushStackLine(seg, fly) {
     if (fly) flyStackLine(line);
 }
 
+// Give the already-stacked lines a slight nudge so they feel alive when the bar
+// re-renders. Staggered top to bottom; skips lines that are flying or falling.
+function nudgeStackLines() {
+    segStack.querySelectorAll(".stack-line:not(.falling)").forEach((line, i) => {
+        line.classList.remove("stack-nudge");
+        void line.offsetWidth; // restart the animation cleanly
+        line.style.animationDelay = `${i * 250}ms`;
+        line.classList.add("stack-nudge");
+    });
+}
+
 // Rebuild the stack straight from elapsed time, no animation. Used on load and
 // whenever a render leaves the stack out of sync (e.g. day rollover, reload).
 function rebuildStackStatic() {
@@ -1324,6 +1335,10 @@ function renderTimerSegment(animate = false) {
     // Keep the completed-segment stack in sync (load, reload, day rollover, or
     // an end screen that did not cross a boundary). Crossings animate instead.
     rebuildStackStatic();
+
+    // Nudge the stacked lines so they feel alive, but only here where no new
+    // bar is being added (a crossing returns above and flies one in instead).
+    setTimeout(nudgeStackLines, 300);
 
     // Expand the bar to full height and size its length to the segment span
     timerTrack.style.height = "24px";
@@ -2433,7 +2448,7 @@ function stopGame(autoEnded = false) {
 
     // Show the goal segment bar on the end screen, filling toward the next marker.
     // Delayed slightly so it lands just after the results popup arches in.
-    const BAR_REVEAL_DELAY = 400;
+    const BAR_REVEAL_DELAY = 100;
     setTimeout(() => {
         timerProgress.style.visibility = "";
         timerFill.style.display = "block";
