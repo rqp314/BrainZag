@@ -30,7 +30,6 @@ const motivation = [
     `Maybe take a short break, but finish 20min today`,
     `Consistency beats talent`,
     `Keep suffering!`,
-    `Cognitive chaos detected`,
     `The colors don't care about your plans`,
     `Tough rounds build the most strength`,
     `Every rep trains your brain`,
@@ -80,6 +79,7 @@ const motivation = [
     `Stop trying to be correct all the time`,
     `Trying is failing, just be`,
     `You don't have to smart, just be consistent`,
+    `You are the master of your time`,
 ];
 
 const midMessages = [
