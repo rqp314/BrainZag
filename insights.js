@@ -16,7 +16,7 @@ const motivation = [
     `Suffering is the real teacher`,
     `Perseverance equals success`,
     `Success is effort sustained over a long period of time`,
-    `Your competition is your distractions`,
+    `Your competitors are your distractions`,
     `Failure -> Failure -> Failure -> Success!`,
     `Can you do another round ?`,
     `This is the part where most people quit`,
