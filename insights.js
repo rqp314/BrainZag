@@ -100,7 +100,6 @@ const otherMessages = [
     `You're staring at colored squares on purpose`,
     `Your phone has 27 other apps. You chose this one`,
     `You could be scrolling social media. But here you are`,
-    `This game knows your accuracy. It still likes you`,
     `10 to 20 min daily is the sweet spot for gains`,
     `You don't have 20 min in your entire day ?`,
     `Train 4 to 5 days per week for best results`,
@@ -134,11 +133,10 @@ const otherMessages = [
     `The hardest part is starting. You did that`,
     `One more session in the bank`,
     `Done is better than perfect`,
-    `That's another deposit in the brain bank`,
     `N-Back is not hard, sitting down every day is`,
     `Don't waste your time on some other nonsense`,
     `If you want to move a mountain, start with the small stones`,
-    `You need to show up every day -> it's boring`,
+    `You need to show up every day -> it will be boring`,
     `Coming back to a low dopamine activity is needed`,
 ];
 
@@ -146,11 +144,12 @@ const otherMessages = [
 function getConsecutiveDaysStreak() {
     const today = new Date();
     let streak = 0;
-    for (let i = 0; i < 365; i++) {
+    for (let i = 0; i < 30; i++) { // 30 days look back
         const d = new Date(today);
         d.setDate(d.getDate() - i);
         const dateStr = formatDateLocal(d);
-        if (performanceHistory.has(dateStr)) {
+        const entry = performanceHistory.get(dateStr);
+        if (entry && entry.playTime >= 45) { // minimum seconds required
             streak++;
         } else {
             break;
@@ -282,12 +281,12 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
 
     // 11. Consecutive days played
     const dayStreak = getConsecutiveDaysStreak();
-    if (dayStreak >= 7) {
+    if (dayStreak >= 8) {
         insights.push({
             text: `Played ${dayStreak} days in a row! Unstoppable`,
             priority: 7
         });
-    } else if (dayStreak >= 3) {
+    } else if (dayStreak >= 4) {
         insights.push({
             text: `${dayStreak} days in a row. Building a habit`,
             priority: 7
