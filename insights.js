@@ -80,6 +80,14 @@ const motivation = [
     `Trying is failing, just be`,
     `You don't have to smart, just be consistent`,
     `You are the master of your time`,
+    `Stop waiting to feel motivated, do the work anyway`,
+    `When your mind says stop, learn to keep moving`,
+    `Discipline is doing what you said you would do`,
+    `Nobody is coming to save you, get yourself moving`,
+    `Don't negotiate with the weaker version of yourself`,
+    `Do the hard thing when nobody is watching`,
+    `Your excuses don't change what needs to get done`,
+    `Get comfortable being uncomfortable`,
 ];
 
 const midMessages = [
@@ -137,6 +145,15 @@ const otherMessages = [
     `If you want to move a mountain, start with the small stones`,
     `You need to show up every day -> it will be boring`,
     `Coming back to a low dopamine activity is needed`,
+    `Don't chase motivation, build discipline`,
+    `You become stronger every time you refuse to quit`,
+    `The work doesn't care how you feel today`,
+    `Stop talking about it and start doing it`,
+    `When you think you've had enough, take one more step`,
+    `Don't make promises to yourself that you won't keep`,
+    `Your potential means nothing until you put in the work`,
+    `Do today's work so tomorrow's version of you is stronger`,
+    `Get up, get after it, and finish what you started`,
 ];
 
 // Count how many consecutive days (including today) the player has played
@@ -492,7 +509,7 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
 
     // Track recently shown messages to avoid repetition (rolling window)
     if (selected !== ``) recentInsights.push(selected);
-    if (recentInsights.length > 30) recentInsights.shift();
+    if (recentInsights.length > 50) recentInsights.shift();
     if (selected !== ``) saveRecentInsights();
     return selected;
 }
