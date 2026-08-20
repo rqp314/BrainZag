@@ -29,7 +29,7 @@ const motivation = [
     `Staring at squares is better than doomscrolling`,
     `Maybe take a short break, but finish 20min today`,
     `Consistency beats talent`,
-    `Keep suffering!`,
+    `Keep suffering !`,
     `The colors don't care about your plans`,
     `Tough rounds build the most strength`,
     `Every rep trains your brain`,
@@ -41,13 +41,12 @@ const motivation = [
     `Your brain is rewiring RIGHT NOW`,
     `The score doesn't show the neural growth`,
     `Bad rounds are just warmups`,
-    `But you're still here`,
     `The colors won this round. Rematch?`,
     `If this were easy, everyone would do it`,
     `The squares are laughing. Can you hear them?`,
     `You're voluntarily doing this. Wild`,
     `Blink twice if you need help`,
-    `Are you tired ? But are you done ??`,
+    `Are you tired ? Are you done ??`,
     `What stands in the way becomes the way`,
     `Daily training will be extremely boring and difficult`,
     `Fall seven times, stand up eight !`,
@@ -74,7 +73,7 @@ const motivation = [
     `Steady repetition quietly builds mastery`,
     `How much do you train and how much do you consume ?`,
     `Your mind says no - you just say: this is what we do now`,
-    `No motivation, no discipline - where is it? just do`,
+    `No motivation, no discipline - where is it? just do it`,
     `You will have good rounds and you will have bad rounds`,
     `Stop trying to be correct all the time`,
     `Trying is failing, just be`,
@@ -148,7 +147,7 @@ const otherMessages = [
     `Don't chase motivation, build discipline`,
     `You become stronger every time you refuse to quit`,
     `The work doesn't care how you feel today`,
-    `Stop talking about it and start doing it`,
+    `Stop talking about it and start DOING it`,
     `When you think you've had enough, take one more step`,
     `Don't make promises to yourself that you won't keep`,
     `Your potential means nothing until you put in the work`,
@@ -509,7 +508,7 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
 
     // Track recently shown messages to avoid repetition (rolling window)
     if (selected !== ``) recentInsights.push(selected);
-    if (recentInsights.length > 50) recentInsights.shift();
+    if (recentInsights.length > 60) recentInsights.shift();
     if (selected !== ``) saveRecentInsights();
     return selected;
 }
