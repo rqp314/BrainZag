@@ -77,7 +77,7 @@ const motivation = [
     `You will have good rounds and you will have bad rounds`,
     `Stop trying to be correct all the time`,
     `Trying is failing, just be`,
-    `You don't have to smart, just be consistent`,
+    `You don't have to be smart, just be consistent`,
     `You are the master of your time`,
     `Stop waiting to feel motivated, do the work anyway`,
     `When your mind says stop, learn to keep moving`,
