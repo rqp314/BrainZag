@@ -148,6 +148,8 @@ const otherMessages = [
     `You become stronger every time you refuse to quit`,
     `The work doesn't care how you feel today`,
     `Stop talking about it and start DOING it`,
+    `Stop dreaming about it and start WORKING on it`,
+    `Stop thinking about it and start DOING it`,
     `When you think you've had enough, take one more step`,
     `Don't make promises to yourself that you won't keep`,
     `Your potential means nothing until you put in the work`,
