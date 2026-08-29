@@ -344,45 +344,48 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
     const currentStreak = getGoalDaysStreak();
     const goalRemaining = GOAL_STREAK_TARGET - currentStreak; // days left, today included
     if (currentStreak < DAYS_EVALUATED) {
-        if (currentStreak >= GOAL_STREAK_TARGET) {
-            insights.push({
-                text: `Streak: ${currentStreak} full days done. Unbroken`,
-                priority: 7
-            });
-        } else if (goalRemaining === 1) {
-            insights.push({
-                text: `20 days done. 20 min today completes the 21 day goal`,
-                priority: 7
-            });
-        } else if (currentStreak >= 9) {
-            insights.push({
-                text: `Streak: ${currentStreak} days done. ${goalRemaining} more to the 21 day goal`,
-                priority: 7
-            });
-        } else if (currentStreak >= 7) {
-            insights.push({
-                text: `Streak: ${currentStreak} full days behind you. Let's go`,
-                priority: 7
-            });
-        } else if (currentStreak >= 2) {
-            insights.push({
-                text: `Streak: ${currentStreak} full days in a row. Day ${currentStreak + 1} is today`,
-                priority: 7
-            });
-        } else if (currentStreak === 1) {
-            insights.push({
-                text: `Streak: 1 full day done. 20 min today makes it 2`,
-                priority: 7
-            });
-        }
+        if (elapsedSeconds >= 660) { // 11min
+            // Loss framing, only once a real streak is on the line and today's
+            // 20 min are not done yet
+            if (currentStreak >= 3 && elapsedSeconds < HEATMAP_TARGET_SECONDS) {
+                insights.push({
+                    text: `Give up today and you lose your ${currentStreak} day streak`,
+                    priority: 7
+                });
+            }
 
-        // Loss framing, only once a real streak is on the line and today's
-        // 20 min are not done yet
-        if (currentStreak >= 3 && elapsedSeconds < HEATMAP_TARGET_SECONDS) {
-            insights.push({
-                text: `Give up today and you lose your ${currentStreak} day streak`,
-                priority: 7
-            });
+        } else if (elapsedSeconds >= 300) { // 5min
+            if (currentStreak >= GOAL_STREAK_TARGET) {
+                insights.push({
+                    text: `Streak: ${currentStreak} full days done. Unbroken`,
+                    priority: 7
+                });
+            } else if (goalRemaining === 1) {
+                insights.push({
+                    text: `20 days done. 20 min today completes the 21 day goal`,
+                    priority: 7
+                });
+            } else if (currentStreak >= 9) {
+                insights.push({
+                    text: `Streak: ${currentStreak} days done. ${goalRemaining} more to the 21 day goal`,
+                    priority: 7
+                });
+            } else if (currentStreak >= 7) {
+                insights.push({
+                    text: `Streak: ${currentStreak} full days behind you. Let's go`,
+                    priority: 7
+                });
+            } else if (currentStreak >= 2) {
+                insights.push({
+                    text: `Streak: ${currentStreak} full days in a row. Day ${currentStreak + 1} is today`,
+                    priority: 7
+                });
+            } else if (currentStreak === 1) {
+                insights.push({
+                    text: `Streak: 1 full day done. 20 min today makes it 2`,
+                    priority: 7
+                });
+            }
         }
     }
 
@@ -536,101 +539,105 @@ function generatePositiveInsight(accuracy, roundsPlayed, easyMemoryLoad) {
     const month = now.getMonth(); // 0=Jan, 1=Feb ... 11=Dec
     const dayOfMonth = now.getDate();
     const daysInMonth = new Date(now.getFullYear(), month + 1, 0).getDate();
+    if (elapsedSeconds >= 660) { // 11min
+        if (month === 0) { // January
+            timeMessages.push(
+                `New year, same discipline. Just keep showing up`,
+                `January resolutions die in February. Yours won't`,
+                `Everyone starts in January. Almost nobody finishes`,
+            );
+        } else if (month === 1) { // February
+            timeMessages.push(
+                `February: where most resolutions are already dead`,
+                `Shortest month of the year, no excuses`,
+            );
+        } else if (month === 2) { // March
+            timeMessages.push(
+                `March session logged. The first quarter is yours`,
+                `Spring comes whether you trained or not. Train`,
+            );
+        } else if (month === 3) { // April
+            timeMessages.push(
+                `April training and no fooling around`,
+                `A quarter of your year is gone. Your focus isn't`,
+            );
+        } else if (month === 4) { // May
+            timeMessages.push(
+                `May session done. Momentum over motivation`,
+                `Long days outside, sharp mind inside`,
+            );
+        } else if (month === 5) { // June
+            timeMessages.push(
+                `Half of your year is gone. How much did you train ?`,
+                `June session. Summer is not an excuse`,
+            );
+        } else if (month === 6) { // July
+            timeMessages.push(
+                `Training in July. Discipline takes no vacation`,
+                `Holiday season for others, training season for you`,
+            );
+        } else if (month === 7) { // August
+            timeMessages.push(
+                `August session. The quiet month builds big strength`,
+                `Everyone else is away in August. You are still here`,
+            );
+        } else if (month === 8) { // September
+            timeMessages.push(
+                `September: back to work, back to training`,
+                `Fresh start energy without waiting for January`,
+                `This year is soon over. Let's go !!!`,
+            );
+        } else if (month === 9) { // October
+            timeMessages.push(
+                `October session check. Finish your year strong`,
+                `Darker outside, sharper inside`,
+            );
+        } else if (month === 10) { // November
+            timeMessages.push(
+                `November grind. Nobody sees this work but you`,
+                `Cold, dark, and you trained anyway`,
+                `This year is ending, did you train enough ?`,
+            );
+        } else if (month === 11) { // December
+            timeMessages.push(
+                `December training while everyone else celebrates`,
+                `Finish your year the way you want to start the next`,
+                `The year ends soon. Your streak doesn't have to`,
+            );
+        }
 
-    if (month === 0) { // January
-        timeMessages.push(
-            `New year, same discipline. Just keep showing up`,
-            `January resolutions die in February. Yours won't`,
-            `Everyone starts in January. Almost nobody finishes`,
-        );
-    } else if (month === 1) { // February
-        timeMessages.push(
-            `February: where most resolutions are already dead`,
-            `Shortest month of the year, no excuses`,
-            `Still training in February. That's the whole point`,
-        );
-    } else if (month === 2) { // March
-        timeMessages.push(
-            `March session logged. The first quarter is yours`,
-            `Spring comes whether you trained or not. Train`,
-        );
-    } else if (month === 3) { // April
-        timeMessages.push(
-            `April training and no fooling around`,
-            `A quarter of the year is gone. Your focus isn't`,
-        );
-    } else if (month === 4) { // May
-        timeMessages.push(
-            `May session done. Momentum over motivation`,
-            `Long days outside, sharp mind inside`,
-        );
-    } else if (month === 5) { // June
-        timeMessages.push(
-            `Half the year is gone. How much did you train ?`,
-            `June session. Summer is not an excuse`,
-        );
-    } else if (month === 6) { // July
-        timeMessages.push(
-            `Training in July. Discipline takes no vacation`,
-            `Holiday season for others, training season for you`,
-        );
-    } else if (month === 7) { // August
-        timeMessages.push(
-            `August session. The quiet month builds quiet strength`,
-            `Everyone else is away in August. You are still here`,
-        );
-    } else if (month === 8) { // September
-        timeMessages.push(
-            `September: back to work, back to training`,
-            `Fresh start energy without waiting for January`,
-        );
-    } else if (month === 9) { // October
-        timeMessages.push(
-            `October session banked. Finish the year strong`,
-            `Darker outside, sharper inside`,
-        );
-    } else if (month === 10) { // November
-        timeMessages.push(
-            `November grind. Nobody sees this work but you`,
-            `Cold, dark, and you trained anyway`,
-        );
-    } else if (month === 11) { // December
-        timeMessages.push(
-            `December training while everyone else celebrates`,
-            `Finish the year the way you want to start the next`,
-            `The year ends soon. Your streak doesn't have to`,
-        );
+    } else if (elapsedSeconds >= 180) { // 3min
+        // Position inside the current month
+        if (dayOfMonth <= 3) {
+            timeMessages.push(
+                `${monthNames[month]} just started. 21 days fit inside one month`,
+                `First days of ${monthNames[month]}. Set the tone now`,
+            );
+        } else if (dayOfMonth > daysInMonth - 3) {
+            timeMessages.push(
+                `Closing out ${monthNames[month]} with a session`,
+                `Last days of ${monthNames[month]}. Don't coast now`,
+            );
+        } else if (dayOfMonth >= 14 && dayOfMonth <= 16) {
+            timeMessages.push(
+                `Middle of ${monthNames[month]} and you're still at it`,
+                `Half of ${monthNames[month]} is behind you. Keep going`,
+            );
+        }
+
+        // Dark months plus an early session is worth its own credit
+        if ((month === 10 || month === 11 || month === 0) && hour >= 4 && hour < 9) {
+            timeMessages.push(`Dark ${monthNames[month]} morning and you're already training ...`);
+        }
     }
 
-    // Position inside the current month
-    if (dayOfMonth <= 3) {
-        timeMessages.push(
-            `${monthNames[month]} just started. 21 days fit inside one month`,
-            `First days of ${monthNames[month]}. Set the tone now`,
-        );
-    } else if (dayOfMonth > daysInMonth - 3) {
-        timeMessages.push(
-            `Closing out ${monthNames[month]} with a session`,
-            `Last days of ${monthNames[month]}. Don't coast now`,
-        );
-    } else if (dayOfMonth >= 14 && dayOfMonth <= 16) {
-        timeMessages.push(
-            `Middle of ${monthNames[month]} and you're still at it`,
-            `Half of ${monthNames[month]} is behind you. Keep going`,
-        );
-    }
-
-    // Dark months plus an early session is worth its own credit
-    if ((month === 10 || month === 11 || month === 0) && hour >= 4 && hour < 9) {
-        timeMessages.push(`Dark ${monthNames[month]} morning and you're already training`);
-    }
 
     let selected = ``
 
-    // Try the top 3 priority insights, pick the first one not recently shown
+    // Try the top x priority insights, pick the first one not recently shown
     if (insights.length > 0) {
         insights.sort((a, b) => b.priority - a.priority);
-        for (let i = 0; i < Math.min(3, insights.length); i++) {
+        for (let i = 0; i < Math.min(4, insights.length); i++) {
             if (!recentInsights.includes(insights[i].text)) {
                 selected = insights[i].text;
                 break;
