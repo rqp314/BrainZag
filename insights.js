@@ -12,7 +12,6 @@
 
 const motivation = [
     `You don't quit when it hurts.`,
-    `Your brain is adapting`,
     `Suffering is the real teacher`,
     `Perseverance equals success`,
     `Success is effort sustained over a long period of time`,
@@ -32,20 +31,14 @@ const motivation = [
     `Keep suffering !`,
     `The colors don't care about your plans`,
     `Tough rounds build the most strength`,
-    `Every rep trains your brain`,
     `Struggling means you're growing`,
     `You stayed. That takes grit`,
     `This is where real growth happens`,
     `You will only progress in small increments - that's okay`,
     `Hard rounds are the most valuable`,
-    `Your brain is rewiring RIGHT NOW`,
-    `The score doesn't show the neural growth`,
-    `Bad rounds are just warmups`,
-    `The colors won this round. Rematch?`,
     `If this were easy, everyone would do it`,
     `The squares are laughing. Can you hear them?`,
     `You're voluntarily doing this. Wild`,
-    `Blink twice if you need help`,
     `Are you tired ? Are you done ??`,
     `What stands in the way becomes the way`,
     `Daily training will be extremely boring and difficult`,
@@ -94,7 +87,6 @@ const midMessages = [
     `You're pushing your limits`,
     `Keep at it. Momentum is building`,
     `Working memory grows through challenge`,
-    `Your brain is doing more than you think`,
     `Not perfect. Not quitting. That's the formula`,
     `The gap between 60% and 80% is where pros are made`,
     `Consistency over perfection. Always`,
@@ -104,7 +96,6 @@ const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const otherMessages = [
-    `You're staring at colored squares on purpose`,
     `Your phone has 27 other apps. You chose this one`,
     `You could be scrolling social media. But here you are`,
     `10 to 20 min daily is the sweet spot for gains`,
@@ -138,7 +129,6 @@ const otherMessages = [
     `Every session counts`,
     `Your brain thanks you`,
     `The hardest part is starting. You did that`,
-    `One more session in the bank`,
     `Done is better than perfect`,
     `N-Back is not hard, sitting down every day is`,
     `Don't waste your time on some other nonsense`,
